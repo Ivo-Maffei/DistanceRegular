@@ -2,9 +2,7 @@
 # distutils: include_dirs = sage/graphs/distance_regular_C/
 
 # project C import
-cimport sage.graphs.distance_regular_C as c_code
-cimport cython
-from libc.stdlib cimport malloc, free
+cimport sage.graphs.distance_regular_C as c_code #not used atm
 from cysignals.signals cimport sig_check
 
 # python imports
@@ -14,7 +12,7 @@ import numpy as np
 # sage imports
 from sage.graphs.graph_generators import GraphGenerators
 from sage.graphs.graph import Graph as Sage_Graph
-from sage.arith.misc import is_prime_power, is_prime
+from sage.arith.misc import is_prime_power
 from sage.combinat.q_analogues import q_binomial
 from sage.combinat.integer_vector import IntegerVectors
 from sage.modules.free_module import VectorSpace
@@ -108,67 +106,25 @@ def construct_halved_cube( int n ):
     G.name("Halved %d Cube"%n)
     return G
 
-cdef bint _c_has_rank_1(v, const unsigned int nrows, const unsigned int ncols):
-    assert len(v) == nrows*ncols, "wtf"
-    cdef int* pxV;
-    pxV = <int*> malloc(nrows*ncols*cython.sizeof(int))
-    if pxV is NULL:
-            raise MemoryError()
-        
-    for i in range(0,nrows*ncols):
-            pxV[i] = v[i]
-    res =  c_code.HasVectorRank1(pxV,nrows,ncols)
-    free(pxV)
-    return res
-
 def _add_vectors_mod(v, w, const unsigned int q):
     return tuple(map( lambda x : sum(x) % q , zip(v,w) ))
 
 def construct_bilinear_form_graph(const int d, const int e, const int q):
 
-    # C code assumes the matrix is over QQ.
-    # When using Z_p, this is fine as Z_p can be embedded in Q
-    # and all operations done by the C-code (divmod) can be safely done
-    # if instead we have F_q, q=p^n for n > 1, then the C-code works when
-    # assuming that i represents g^i for some g\in F_q generator of F_q^*
-    # however, in such case then we can't perform normal addition between matrices
-    # since g^ì+g^j != g^(i+j)
-
-    import time
-
-    start = time.time()
     flattenMatrices = IntegerVectors(length=d*e,max_part=q-1)
-    end = time.time()
-    print("integer vectors in %.6f" % (end-start) )
     
-    start = time.time()
     rank1Matrices = []
     for v in flattenMatrices:
         if Sage_Matrix(Sage_GF(q), v, nrows=d).rank() == 1:
-        #if _c_has_rank_1(v, d, e):
             rank1Matrices.append(tuple(v))
-    end = time.time()
-    print("done calculating basis size %d in %.6f" % (len(rank1Matrices),end-start) )
 
-    start = time.time()
     edges = []
-    counter = 0
     for v in flattenMatrices:
-        sig_check()
-        counter += 1
-        if counter % 1000 == 0:
-            print("hi %d" % counter)
         for w in rank1Matrices:
-                edges.append( ( tuple(v), _add_vectors_mod(v,w,q) ) )
-
-    end = time.time()
-    print("done set edges size: %d, time: %.6f" %(len(edges), end-start) )
+            sig_check()
+            edges.append( ( tuple(v), _add_vectors_mod(v,w,q) ) )
     
-    start = time.time()
-    G = Sage_Graph(edges, format='list_of_edges')
-    end = time.time()
-    print("done constructing graph in %.6f" % (end-start) )
-    
+    G = Sage_Graph(edges, format='list_of_edges')    
     G.name("Bilinear form graphs over F_%d with parameters (%d,%d)" %(q,d,e) )
     return G
 
