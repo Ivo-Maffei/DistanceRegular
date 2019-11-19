@@ -20,6 +20,334 @@ from sage.rings.finite_rings.finite_field_constructor import GF as Sage_GF
 from sage.matrix.constructor import Matrix as Sage_Matrix
 from sage.rings.rational cimport Rational
 
+################################################################################
+# UTILITY FUNCTIONS
+
+#an iterator to iterate over all vectors of length n using the elements given
+class _AllVectorsIter:
+    def __init__(self, n, elemsIterator ):
+        self.elems = []
+        for i in elemsIterator:
+            if i not in self.elems:
+                self.elems.append(i)
+
+        # now self.elems is a list of all the elements passed without duplication
+        self.length = n
+        self.elemsLength = len(self.elems)
+
+    def __iter__(self):
+        self.start = True #this means to start fresh
+        return self
+
+    def __next__(self):
+        if self.start:
+            self.start = False
+            self.last = [0 for i in range(0,self.n) ] # this represents a number base self.elemsLength
+            return [ self.elems[0] for i in range(0,self.n)]
+        else:
+            for i in range(self.n-1, -1, -1):
+                self.last[i] += 1
+                if self.last[i] != self.elemsLength:
+                    break
+                self.last[i] = 0
+            # now we increased self.last by 1
+            
+            if sum(self.last) == 0:
+                #then we loop back to the zero vector
+                self.start = True #to loop again next time
+                raise StopIteration
+            
+            # otherwise translate our self.last to the vector we need
+            return map(lambda x : self.elems[x], self.last)
+# end of class
+            
+
+def _convert_vector_to_F_q(v,const int q):
+    # takes a vector over ZZ_q and convertes it
+    # to a vector over GF(q)
+    # the map used is not a homomorphism!!!
+    # we rely on the fact that iterating over finite fields always
+    # happens in the same order
+    
+    field = Sage_GF(q)
+    fieldElements = []
+    for i in field:
+        fieldElements.append(i)
+
+    newVector = map( lambda x : fieldElements[x], v)
+    return newVector
+
+def _add_vectors(v, w):
+    return tuple(map( sum, zip(v,w) ))
+
+def _hamming_weight( codeword ):
+    cdef int weight = 0
+    for i in codeword:
+        if i != 0: weight += 1
+        
+    return weight
+
+def _hamming_distance( v, w ):
+    assert len(v) == len(w), "Can't compute Hamming distance of 2 vectors of different size!"
+    cdef int counter = 0
+    for i in range(0, len(v)):
+        if ( v[i] != w[i] ):
+            counter = counter + 1
+    
+    return counter
+
+def _codewords_have_different_support( vec1, vec2 ):
+    # the support of a codeword is the set of coordinates where the codeword
+    # has non-zero entries
+    for (i,j) in zip(vec1,vec2):
+        if i*j != 0:
+            return False
+    return True
+    
+
+################################################################################
+# START CONSTRUCTIONS
+
+def construct_bilinear_form_graph(const int d, const int e, const int q):
+
+    allMatrices = IntegerVectors(length=d*e,max_part=q-1)
+
+    matricesOverq = map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
+
+    rank1Matrices = []
+    for v in matricesOverq:
+        sig_check()
+        if Sage_Matrix(Sage_GF(q), v, nrows=d).rank() == 1:
+            rank1Matrices.append(v)
+
+    edges = []
+    for v in matricesOverq:
+        for w in rank1Matrices:
+            sig_check() # this loop may take a long time, so check for interrupts
+            edges.append( ( tuple(v), _add_vectors(v,w) ) )
+    
+    G = Sage_Graph(edges, format='list_of_edges')    
+    G.name("Bilinear form graphs over F_%d with parameters (%d,%d)" %(q,d,e) )
+    return G
+
+def construct_alternating_form_graph(const int n, const int q):
+
+    import time as t
+    
+    start = t.time()
+
+    allMatrices = IntegerVectors(length=(n*(n-1))/2, max_part=q-1)
+    # each vector represents the entries over the diagonal of a  skewSymmetricMatrix with zero diagonal
+    
+    skewSymmetricMatrices = map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
+
+    end = t.time()
+    print("done vertices: %d, in %.6f" %(len(skewSymmetricMatrices), end-start) )
+
+    start = t.time()
+    
+    rank2Matrices = []
+    for v in skewSymmetricMatrices:
+        sig_check()
+        
+        # we need to convert v into a matrix
+        
+        data = n-1 # how much data to take from v
+        index = 0 # where are we in v
+        zeros = [ 0 for i in range(0,n) ] # row of zeros
+        mat = [] # v into matrix form
+        while data >= 0:
+            row = zeros[:n-data] + v[index:index+data]
+            index = index + data
+            data -= 1
+            mat.append(row)
+        # now mat is upper triangular with entries from v
+        # so we need to fill the lower half
+        for r in range(1,n): #skip first row which is fine
+            for c in range(0,r): # in the bottom half
+                mat[r][c] = -mat[c][r]
+        
+        # finally check if mat is a rank2 matrix
+        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
+            rank2Matrices.append(v) # we append v as it is smaller than mat
+
+    end = t.time()
+    print("found %d rank 2 matrices in %.6f" %(len(rank2Matrices), end-start) )
+
+    start = t.time()
+    edges = []
+    for v in skewSymmetricMatrices:
+        for w in rank2Matrices:
+            sig_check() # check for interrupts
+            edges.append( (tuple(v), _add_vectors(v,w)) )
+    end = t.time()
+    print("created %d edges in %.6f" %(len(edges), end-start) )
+
+    start = t.time()
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
+    end = t.time()
+    print("created graph in %.6f" %(end-start) )
+    
+    return G
+
+def construct_hermitean_form_graph(const int n, const int q):
+    (b,k) = is_prime_power(q, True)
+    if k == 0 or k % 2 != 0:
+        raise ValueError("We need q=r^2 where r is a prime power")
+
+    # here we have b^k = q, b is prime and k is even
+    r = b**(k/2)
+    # so r^2 = b^k = q
+
+    # this is the bar automorphism on GF(q)
+    def bar( x ):
+        return x**r
+
+    # find all hermitean matrices
+    # we need the upper half and the diagonal
+    allUpperHalves = IntegerVectors(length=(n*(n-1))/2, max_part=q-1)
+
+    # now we need the diagonals
+    pass
+    
+
+def construct_halved_cube( int n ):
+    #construct the halved cube graph 1/2 Q_n ( = Q_{n-1} ^2 )
+    G = GraphGenerators.CubeGraph(n-1)
+    # now square the graph
+    # we use the fact that the vertices are strings and their distance is their hamming_distance
+    for i in G.vertices():
+        for j in G.vertices():
+            sig_check()
+            if _hamming_distance(i, j) == 2 :
+                G.add_edge(i,j)
+                
+    G.relabel() # label back vertices to 0,1,2,...
+
+    G.name("Halved %d Cube"%n)
+    return G
+
+def construct_extended_ternary_Golay_code_graph():
+
+    V = VectorSpace(Sage_GF(3),12) # underlying vectorspace
+    C = V.span([ (1, 0, 0, 0, 0, 0, 2, 0, 1, 2, 1, 2),
+                 (0, 1, 0, 0, 0, 0, 1, 2, 2, 2, 1, 0),
+                 (0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1),
+                 (0, 0, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2),
+                 (0, 0, 0, 0, 1, 0, 2, 1, 2, 2, 0, 1),
+                 (0, 0, 0, 0, 0, 1, 0, 2, 1, 2, 2, 1) ])
+    # C is the codeword space
+    
+    G = GraphGenerators.EmptyGraph()
+    G.add_vertices( map( tuple, C ) )
+
+    generators = [ v for v in C if v.hamming_weight() == 12 ]
+
+    for v in G:
+        for s in generators:
+            w = tuple( map( sum , zip(v,s) ))
+            G.add_edge(v,w)
+            
+    G.name("Ternary Extended Golay Code Graph")
+    return G
+
+def construct_large_Witt_graph():
+    # G is the generator matrix of the extended binary Goolay code
+    G = np.array([ [1,0,0,0,0,0,0,0,0,0,0,0, 1,0,0,1,1,1,1,1,0,0,0,1],
+                   [0,1,0,0,0,0,0,0,0,0,0,0, 0,1,0,0,1,1,1,1,1,0,1,0],
+                   [0,0,1,0,0,0,0,0,0,0,0,0, 0,0,1,0,0,1,1,1,1,1,0,1],
+                   [0,0,0,1,0,0,0,0,0,0,0,0, 1,0,0,1,0,0,1,1,1,1,1,0],
+                   [0,0,0,0,1,0,0,0,0,0,0,0, 1,1,0,0,1,0,0,1,1,1,0,1],
+                   [0,0,0,0,0,1,0,0,0,0,0,0, 1,1,1,0,0,1,0,0,1,1,1,0],
+                   [0,0,0,0,0,0,1,0,0,0,0,0, 1,1,1,1,0,0,1,0,0,1,0,1],
+                   [0,0,0,0,0,0,0,1,0,0,0,0, 1,1,1,1,1,0,0,1,0,0,1,0],
+                   [0,0,0,0,0,0,0,0,1,0,0,0, 0,1,1,1,1,1,0,0,1,0,0,1],
+                   [0,0,0,0,0,0,0,0,0,1,0,0, 0,0,1,1,1,1,1,0,0,1,1,0],
+                   [0,0,0,0,0,0,0,0,0,0,1,0, 0,1,0,1,0,1,0,1,0,1,1,1],
+                   [0,0,0,0,0,0,0,0,0,0,0,1, 1,0,1,0,1,0,1,0,1,0,1,1] ])
+    
+    # condtruction is here: http://mathworld.wolfram.com/LargeWittGraph.html
+    
+    vertices=[]
+    # we will add tuples as vertices via add_vertex(tuple([1,0,1....]))
+    cdef int vertices_found = 0 #max is 759
+    for vec in IntegerVectors(k=12,max_part=1): #iterate over all binary vectors of size 12
+        codeword = np.matmul(vec,G) % 2
+        if (_hamming_weight(codeword) == 8 ): # is a valid vertex
+            vertices.append(tuple(codeword))
+            vertices_found += 1
+            if vertices_found == 759: break
+
+    edges = []
+    # here W contains all 759 vertices
+    for v in vertices:
+        for w in vertices:
+            # check if w,v are orthogonal and if so, add edge
+            if _codewords_have_different_support(v,w):
+                edges.append((v,w))
+
+    W = Sage_Graph(edges, format='list_of_edges')
+    W.name("Large Witt graph")
+    return W
+
+def construct_truncated_Witt_graph():
+    # get large witt graph and remove all vertices which start with a 1
+    G = construct_large_Witt_graph()
+    G.delete_vertices(filter( lambda x : x[0] == 1, G.vertices() ))
+    G.relabel( lambda v: v[1:24] )
+
+    G.name("Truncated Witt graph")
+    return G
+
+def construct_Grassman( const int q, const int n, const int input_e ):
+    # this is too slow
+    V = VectorSpace(Sage_GF(q),n) # vector space over F_q of dim n
+
+    # get a generator of subspaces
+    if n >= 2 * input_e:
+        e = input_e
+    else:
+        e = n - input_e
+
+    #add edges
+    edges = []
+    for W in V.subspaces(e):
+        for U in V.subspaces(e):
+            if W.intersection(U).dimension == e-1:
+                edges.append( (W.basis_matrix(), U.basis_matrix()) )
+
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("Grassman graph J_%d(%d,%d)" % (q, n, input_e) )
+    return G
+
+# END CONSTRUCTIONS
+################################################################################
+
+# given a graph G it halves the graph
+def halve_graph(G) :
+    # we halve the graph G
+    # we assume G is bipartite
+    # this is  faster
+    assert G.is_bipartite()
+    H = GraphGenerators.EmptyGraph()
+    queue = [G.vertices()[0]] # queue of vertex to follow
+    H.add_vertex(G.vertices()[0])
+    while queue:
+        v = queue.pop(0)
+        close = G.neighbors(v)
+        candidate = [ x for c in close for x in G.neighbors(c) ]# flatten map G.neighbors(_) close
+        for w in candidate:
+            if G.distance(v,w) == 2:
+                if w not in H:
+                     queue.append(w)
+                     H.add_vertex(w)
+                H.add_edge(v,w)
+
+    H.name("Halved %s" % G.name() )
+    
+    return H
+
 # from bouwer book, we assume d \gt 3 [not sure if it works with smaller d]
 def intersection_array_from_classical_parameters( const int d, const int b, const float alpha, const float beta ):
     if b == 1:
@@ -60,75 +388,6 @@ def intersection_array_from_graph( G ):
     # so trim these 2 values
     return b[:-1]+c[1:]
 
-def halve_graph(G) :
-    # we halve the graph G
-    # we assume G is bipartite
-    # this is  faster
-    assert G.is_bipartite()
-    H = GraphGenerators.EmptyGraph()
-    queue = [G.vertices()[0]] # queue of vertex to follow
-    H.add_vertex(G.vertices()[0])
-    while queue:
-        v = queue.pop(0)
-        close = G.neighbors(v)
-        candidate = [ x for c in close for x in G.neighbors(c) ]# flatten map G.neighbors(_) close
-        for w in candidate:
-            if G.distance(v,w) == 2:
-                if w not in H:
-                     queue.append(w)
-                     H.add_vertex(w)
-                H.add_edge(v,w)
-
-    H.name("Halved %s" % G.name() )
-    
-    return H
-
-def construct_halved_cube( int n ):
-    def hamming_dist( str1, str2 ):
-        assert len(str1) == len(str2), "Can't compute Hamming distance of 2 strings of different size!"
-        counter = 0
-        for i in range(0, len(str1)):
-            if ( str1[i] != str2[i] ):
-                counter = counter + 1
-        return counter
-    
-    #construct the halved cube graph 1/2 Q_n ( = Q_{n-1} ^2 )
-    G = GraphGenerators.CubeGraph(n-1)
-    # now square the graph
-    # we use the fact that the vertices are strings and their distance is their hamming_distance
-    for i in G.vertices():
-        for j in G.vertices():
-            if hamming_dist(i, j) == 2 :
-                G.add_edge(i,j)
-                
-    G.relabel() # label back vertices to 0,1,2,...
-
-    G.name("Halved %d Cube"%n)
-    return G
-
-def _add_vectors_mod(v, w, const unsigned int q):
-    return tuple(map( lambda x : sum(x) % q , zip(v,w) ))
-
-def construct_bilinear_form_graph(const int d, const int e, const int q):
-
-    flattenMatrices = IntegerVectors(length=d*e,max_part=q-1)
-    
-    rank1Matrices = []
-    for v in flattenMatrices:
-        if Sage_Matrix(Sage_GF(q), v, nrows=d).rank() == 1:
-            rank1Matrices.append(tuple(v))
-
-    edges = []
-    for v in flattenMatrices:
-        for w in rank1Matrices:
-            sig_check()
-            edges.append( ( tuple(v), _add_vectors_mod(v,w,q) ) )
-    
-    G = Sage_Graph(edges, format='list_of_edges')    
-    G.name("Bilinear form graphs over F_%d with parameters (%d,%d)" %(q,d,e) )
-    return G
-
-
 # check if the graph G is a grassman graph
 def is_Grassman( G ):
     if not G.is_distance_regular(): return False
@@ -138,113 +397,7 @@ def is_Grassman( G ):
 
     # as an aside we don't really need to check whether b is a prime power
     # b == alpha && b != 1 && b > 0 is enough 
-    return d > 2 and b == alpha and b != 1 and b > 0
-
-def construct_extended_ternary_Golay_code_graph():
-
-    V = VectorSpace(Sage_GF(3),12) # underlying vectorspace
-    C = V.span([ (1, 0, 0, 0, 0, 0, 2, 0, 1, 2, 1, 2),
-                 (0, 1, 0, 0, 0, 0, 1, 2, 2, 2, 1, 0),
-                 (0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1),
-                 (0, 0, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2),
-                 (0, 0, 0, 0, 1, 0, 2, 1, 2, 2, 0, 1),
-                 (0, 0, 0, 0, 0, 1, 0, 2, 1, 2, 2, 1) ])
-    # C is the codeword space
-    
-    G = GraphGenerators.EmptyGraph()
-    G.add_vertices( map( tuple, C ) )
-
-    generators = [ v for v in C if v.hamming_weight() == 12 ]
-
-    for v in G:
-        for s in generators:
-            w = tuple( map( sum , zip(v,s) ))
-            G.add_edge(v,w)
-            
-    G.name("Ternary Extended Golay Code Graph")
-    return G
-
-def construct_large_Witt_graph():
-     # G is the generator matrix of the extended binary Goolay code
-    G = np.array([ [1,0,0,0,0,0,0,0,0,0,0,0, 1,0,0,1,1,1,1,1,0,0,0,1],
-                   [0,1,0,0,0,0,0,0,0,0,0,0, 0,1,0,0,1,1,1,1,1,0,1,0],
-                   [0,0,1,0,0,0,0,0,0,0,0,0, 0,0,1,0,0,1,1,1,1,1,0,1],
-                   [0,0,0,1,0,0,0,0,0,0,0,0, 1,0,0,1,0,0,1,1,1,1,1,0],
-                   [0,0,0,0,1,0,0,0,0,0,0,0, 1,1,0,0,1,0,0,1,1,1,0,1],
-                   [0,0,0,0,0,1,0,0,0,0,0,0, 1,1,1,0,0,1,0,0,1,1,1,0],
-                   [0,0,0,0,0,0,1,0,0,0,0,0, 1,1,1,1,0,0,1,0,0,1,0,1],
-                   [0,0,0,0,0,0,0,1,0,0,0,0, 1,1,1,1,1,0,0,1,0,0,1,0],
-                   [0,0,0,0,0,0,0,0,1,0,0,0, 0,1,1,1,1,1,0,0,1,0,0,1],
-                   [0,0,0,0,0,0,0,0,0,1,0,0, 0,0,1,1,1,1,1,0,0,1,1,0],
-                   [0,0,0,0,0,0,0,0,0,0,1,0, 0,1,0,1,0,1,0,1,0,1,1,1],
-                   [0,0,0,0,0,0,0,0,0,0,0,1, 1,0,1,0,1,0,1,0,1,0,1,1] ])
-    
-    # condtruction is here: http://mathworld.wolfram.com/LargeWittGraph.html
-    def codeword_weight( codeword ):
-        cdef int weight = 0
-        for i in codeword:
-            if i == 1: weight += 1
-
-        return weight
-
-    def orthogonal( vec1, vec2 ):
-        for (i,j) in zip(vec1,vec2):
-            if i*j != 0:
-                return False
-        return True
-    
-    vertices=[]
-    # we will add tuples as vertices via add_vertex(tuple([1,0,1....]))
-    cdef int vertices_found = 0 #max is 759
-    for vec in IntegerVectors(k=12,max_part=1): #iterate over all binary vectors of size 12
-        codeword = np.matmul(vec,G) % 2
-        if (codeword_weight(codeword) == 8 ): # is a valid vertex
-            vertices.append(tuple(codeword))
-            vertices_found += 1
-            if vertices_found == 759: break
-
-    edges = []
-    # here W contains all 759 vertices
-    for v in vertices:
-        for w in vertices:
-            # check if w,v are orthogonal and if so, add edge
-            if orthogonal(v,w):
-                edges.append((v,w))
-
-    W = Sage_Graph(edges, format='list_of_edges')
-    W.name("Large Witt graph")
-    return W
-
-def construct_truncated_Witt_graph():
-    # get large witt graph and remove all vertices which start with a 1
-    G = construct_large_Witt_graph()
-    G.delete_vertices(filter( lambda x : x[0] == 1, G.vertices() ))
-    G.relabel( lambda v: v[1:24] )
-
-    G.name("Truncated Witt graph")
-    return G
-
-def construct_Grassman( const int q, const int n, const int input_e ):
-    # this is too slow
-    V = VectorSpace(Sage_GF(q),n) # vector space over F_q of dim n
-
-    # get a generator of subspaces
-    if n >= 2 * input_e:
-        e = input_e
-    else:
-        e = n - input_e
-
-    #add edges
-    edges = []
-    for W in V.subspaces(e):
-        for U in V.subspaces(e):
-            if W.intersection(U).dimension == e-1:
-                edges.append( (W.basis_matrix(), U.basis_matrix()) )
-
-    G = Sage_Graph(edges, format='list_of_edges')
-    G.name("Grassman graph J_%d(%d,%d)" % (q, n, input_e) )
-    return G
-    
+    return d > 2 and b == alpha and b != 1 and b > 0    
 
 def get_classical_parameters_from_intersection_array( array, check=False):
     # we return the tuple (d,b,alpha,beta) representing the classical paramenters of the array passed
@@ -300,7 +453,6 @@ def get_classical_parameters_from_intersection_array( array, check=False):
     if check and not checkValues(array, d, b, alpha, beta): return False
     
     return (d, b, alpha, beta)
-
 
 def distance_regular_graph_with_classical_parameters( const int d,
                                                       const int b,
@@ -402,12 +554,18 @@ def distance_regular_graph_with_classical_parameters( const int d,
             pass
         elif alpha + 1 == b and is_power_of( beta+1, b) >= d:
             # bilinear form
-            pass
+            e = is_power_of(beta+1, b)
+            return construct_bilinear_form_graph(d,e,b)
         elif ( q_of(b,2) != -1 and alpha + 1 == b
                and beta + 1 in { q_of(b,2)**(2*d-1), q_of(b,2)**(2*d+1) }
         ):
             # alternating form graphs or quadratic forms
-            pass
+            q = q_of(b,2)
+            if beta + 1 == q**(2*d-1):
+                n = 2*d
+            else:
+                n = 2*d+1
+            return construct_alternating_form_graph(n,q)
         elif ( d == 3 and q_of(b,4) != -1 and alpha + 1 == b
                and beta + 1 == q_of(b,4)**9
         ):
