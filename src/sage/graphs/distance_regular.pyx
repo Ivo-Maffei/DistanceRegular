@@ -1,13 +1,42 @@
 # distutils: sources = sage/graphs/distance_regular_C/Core/DistanceRegular.c
 # distutils: include_dirs = sage/graphs/distance_regular_C/
+# -*- coding: utf-8 -*-
+r"""
+This module aims at constructing distance-regular graphs.
+
+This module provide the construction of several distance-regular graphs.
+In addition we implemented multiple utility functions for such graphs.
+
+
+EXAMPLES::
+
+<Lots and lots of examples>
+
+AUTHORS:
+
+- Ivo Maffei (2005-01-03): initial version
+
+"""
+
+# ****************************************************************************
+#       Copyright (C) 2013 Ivo Maffei <ivomaffei@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#                  https://www.gnu.org/licenses/
+# ****************************************************************************
 
 # project C import
 cimport sage.graphs.distance_regular_C as c_code #not used atm
 from cysignals.signals cimport sig_check
+from libc.stdlib cimport malloc, free
 
 # python imports
 from math import ceil, floor
 import numpy as np
+from collections import deque as queue
 
 # sage imports
 from sage.graphs.graph_generators import GraphGenerators
@@ -22,6 +51,46 @@ from sage.rings.rational cimport Rational
 
 ################################################################################
 # UTILITY FUNCTIONS
+
+def profilingCython( const int repetitions=10 ):
+    import time
+
+    listTime = 0
+    setTime = 0
+    dequeTime = 0
+
+    vecs = _AllVectorsIter(8,[i for i in range(0,10)])
+    
+    for rep in range(0,repetitions):
+        start = time.time()
+        l = []
+        for v in vecs:
+            sig_check()
+            l.append(tuple(v))
+        end = time.time()
+        listTime += end-start
+
+        start = time.time()
+        s = set()
+        for v in vecs:
+            sig_check()
+            s.add(tuple(v))
+        end = time.time()
+        setTime += end-start
+
+        """start = time.time()
+        d = queue()
+        for v in vecs:
+            sig_check()
+            d.append(tuple(v))
+        end = time.time()
+        dequeTime += end-start"""
+        
+
+    print("list: %d elements in %.6f time(avg)" %(len(vecs), listTime / repetitions ))
+    print("set: %d elements in %.6f time(avg)" %(len(vecs), setTime / repetitions ))
+    #print("deque: %d elements in %.6f time(avg)" %(len(vecs), dequeTime / repetitions ))
+            
 
 #an iterator to iterate over all vectors of length n using the elements given
 class _AllVectorsIter:
@@ -39,13 +108,16 @@ class _AllVectorsIter:
         self.start = True #this means to start fresh
         return self
 
-    def __next__(self):
+    def __next__(self): # this is python 3
+        return self.next(self)
+
+    def next(self): # this is python 2
         if self.start:
             self.start = False
-            self.last = [0 for i in range(0,self.n) ] # this represents a number base self.elemsLength
-            return [ self.elems[0] for i in range(0,self.n)]
+            self.last = [0 for i in range(0,self.length) ] # this represents a number base self.elemsLength
+            return [ self.elems[0] for i in range(0,self.length)]
         else:
-            for i in range(self.n-1, -1, -1):
+            for i in range(self.length-1, -1, -1):
                 self.last[i] += 1
                 if self.last[i] != self.elemsLength:
                     break
@@ -59,6 +131,9 @@ class _AllVectorsIter:
             
             # otherwise translate our self.last to the vector we need
             return map(lambda x : self.elems[x], self.last)
+
+    def __len__(self):
+        return self.elemsLength**(self.length)
 # end of class
             
 
@@ -78,7 +153,13 @@ def _convert_vector_to_F_q(v,const int q):
     return newVector
 
 def _add_vectors(v, w):
-    return tuple(map( sum, zip(v,w) ))
+    cdef int n = len(v)
+    
+    result = []
+    for i in range(0,n):
+        result.append( v[i] + w[i] )
+        
+    return tuple(result)
 
 def _hamming_weight( codeword ):
     cdef int weight = 0
@@ -136,11 +217,13 @@ def construct_alternating_form_graph(const int n, const int q):
     
     start = t.time()
 
-    allMatrices = IntegerVectors(length=(n*(n-1))/2, max_part=q-1)
-    # each vector represents the entries over the diagonal of a  skewSymmetricMatrix with zero diagonal
-    
-    skewSymmetricMatrices = map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
+    field = Sage_GF(q)
+    elemsField = []
+    for x in field:
+        elemsField.append(x)
 
+    skewSymmetricMatrices = _AllVectorsIter((n*(n-1))/2, elemsField)
+    
     end = t.time()
     print("done vertices: %d, in %.6f" %(len(skewSymmetricMatrices), end-start) )
 
@@ -175,20 +258,19 @@ def construct_alternating_form_graph(const int n, const int q):
     print("found %d rank 2 matrices in %.6f" %(len(rank2Matrices), end-start) )
 
     start = t.time()
-    edges = []
+
+    G = GraphGenerators.EmptyGraph()
+    edges = set()
     for v in skewSymmetricMatrices:
         for w in rank2Matrices:
             sig_check() # check for interrupts
-            edges.append( (tuple(v), _add_vectors(v,w)) )
-    end = t.time()
-    print("created %d edges in %.6f" %(len(edges), end-start) )
+            edges.add(( tuple(v), tuple(w) ))#_add_vectors(v,w) ))
+            #G.add_edge( (tuple(v), _add_vectors(v,w)) )
 
-    start = t.time()
-    G = Sage_Graph(edges, format='list_of_edges')
-    G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
     end = t.time()
-    print("created graph in %.6f" %(end-start) )
-    
+    print("created  edges in %.6f" %(end-start) )
+
+    G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
     return G
 
 def construct_hermitean_form_graph(const int n, const int q):
@@ -204,13 +286,54 @@ def construct_hermitean_form_graph(const int n, const int q):
     def bar( x ):
         return x**r
 
+    FqElems= []
+    for x in Sage_GF(q):
+        FqElems.append(x)
+
+    FrElems = []
+    for x in Sage_GF(r):
+        FrElems.append(x)
+        
     # find all hermitean matrices
     # we need the upper half and the diagonal
-    allUpperHalves = IntegerVectors(length=(n*(n-1))/2, max_part=q-1)
+    allUpperHalves = _AllVectorsIter( (n*(n-1))/2, FqElems)
+    allDiagonals = _AllVectorsIter(n, FrElems)
 
-    # now we need the diagonals
-    pass
-    
+    rank1Matrices = []
+    for up in allUpperHalves:
+        for diag in allDiagonals:
+            # compose the matrix
+            sig_check()
+
+            data = n-1 # how much data to take from v
+            index = 0 # where are we in v
+            zeros = [ 0 for i in range(0,n) ] # row of zeros
+            mat = [] # v into matrix form
+            while data >= 0:
+                row = zeros[:n-data-1] + diag[index] + up[index:index+data]
+                index = index + data
+                data -= 1
+                mat.append(row)
+            # now mat is upper triangular with entries from up
+            # so we need to fill the lower half
+            for r in range(1,n): #skip first row which is fine
+                for c in range(0,r): # in the bottom half
+                    mat[r][c] = bar(mat[c][r])
+
+            # now mat is a matrix
+            if Sage_Matrix(Sage_GF(q),mat).rank() == 1:
+                rank1Matrices.append( (diag, up) ) # no need to store the whole matrix
+
+    edges = []
+    for up in allUpperHalves:
+        for diag in allDiagonals:
+            for (d,u) in rank1Matrices:
+                sig_check()
+                edges.append(  ( (tuple(diag),tuple(up)), (_add_vectors(diag,d), _add_vectors(up,u)) )  )
+                
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("Hermitean form graph on (F_%d)^%d" %(q,n) )
+    return G
 
 def construct_halved_cube( int n ):
     #construct the halved cube graph 1/2 Q_n ( = Q_{n-1} ^2 )
@@ -349,7 +472,33 @@ def halve_graph(G) :
     return H
 
 # from bouwer book, we assume d \gt 3 [not sure if it works with smaller d]
-def intersection_array_from_classical_parameters( const int d, const int b, const float alpha, const float beta ):
+def intersection_array_from_classical_parameters( const int d,
+                                                  const int b,
+                                                  const float alpha,
+                                                  const float beta ):
+    r"""
+    Return the intersection array generated by the input.
+
+    The input represents the classical parameters $(d,b,\alpha,\beta)$.
+    The result is the intersection array of a possible graph with such parameters.
+    Note that we don't check for the existance of such graph.
+
+    INPUT:
+    - ``d, b`` -- integers
+    - ``alpha, beta`` -- numbers
+
+    EXAMPLES:
+
+        tbd
+
+    ..NOTE::
+    
+        Atm we don't knwo if this works for d< 3
+
+    TESTS::
+
+        tbd
+    """
     if b == 1:
         bs = [ d *beta ] #bs will be the list {b_0, ..., b_{d-1} }
     else:
@@ -365,11 +514,13 @@ def intersection_array_from_classical_parameters( const int d, const int b, cons
             bs.append( (d - i) * (beta - alpha * i) )
             cs.append( i * (1 + alpha * (i - 1)) )
         else :
-            c = 1 + alpha * ( btoi - 1 ) * invb # 1+ \a \frac {b^{i-1} - 1}{b - 1}
+            # 1+ \a \frac {b^{i-1} - 1}{b - 1}
+            c = 1 + alpha * ( btoi - 1 ) * invb
             btoi = btoi * b
             c = c * (btoi - 1) * invb # c = c_i
             cs.append( c )
-            bs.append( invb * (btod - btoi) * (beta - alpha * (btoi - 1) * invb) )
+            bs.append( invb * (btod - btoi) * (beta - alpha*(btoi - 1)*invb) )
+            
     # now we need to add c_d to cs
     if b == 1:
         cs.append( d * (1 + alpha * (d - 1)) )
@@ -380,8 +531,32 @@ def intersection_array_from_classical_parameters( const int d, const int b, cons
     return (bs + cs)
 
 def intersection_array_from_graph( G ):
+    r"""
+    Return the intersection array of this graph.
+
+    This function is a simple wrapper around 
+    :meth:`sage.graphs.distances_all_pairs.is_distance_regular`
+    but it returns the intersection array
+    $\{b_0,...,b_{d-1},c_1,...,c_d\}$.
+    If the input is not a distance-regular graph, then
+    a ``ValueError`` is raised.
+
+    INPUT:
+    
+    - ``G`` -- a distance-regular graph
+
+    EXAMPLES:
+
+        tbd
+    
+    ..NOTE::
+
+        A ``ValueError`` will be raised if the input graph is not
+        distance-regular.
+    """
     t = G.is_distance_regular(True)
-    assert t, "the graph passed is not distance_regular"
+    if not t:
+        raise ValueError("the graph passed is not distance_regular")
     (b,c) = t
     # annoyingly b ends with None (b_d = 0)
     # and c starts with None (c_0 = 0)
@@ -400,10 +575,43 @@ def is_Grassman( G ):
     return d > 2 and b == alpha and b != 1 and b > 0    
 
 def get_classical_parameters_from_intersection_array( array, check=False):
-    # we return the tuple (d,b,alpha,beta) representing the classical paramenters of the array passed
-    # otherwise we return False
-    # we use proposition 6.2.1 on page 195 of bouwer
+    r"""
+    Return the classical parameters ``(d,b,alpha,beta)`` 
+    representing the intersection array.
 
+    This function will check whether given array is an itersection array 
+    that can be represented with classical parameters.
+    You can disable these extra checks, by setting the optional check input
+    to ``False``
+
+    INPUT:
+
+    - ``array`` -- array of integers
+    - ``check`` -- boolean; if ``False`` this function will assume that 
+      ``array`` is a valid intersection array
+
+    OUTPUT:
+    
+    tuple ``(d,b,alpha,beta)`` of classical parameters for array.
+
+    EXAMPLES:
+
+        tbd
+
+    ALGORITHM:
+
+    This algorithm takes advantage of theorem 6.2.1 on page 195 of bouwer book
+    
+
+    .. NOTE::
+
+        This function may raise a ``ValueError`` if ``check`` is set to ``True``.
+
+    TESTS::
+
+        tbd
+
+    """
     # b_i = arr[i]; c_i = arr[d - 1 + i]
     if check and len(array) % 2 != 0 : return False
     
@@ -445,12 +653,15 @@ def get_classical_parameters_from_intersection_array( array, check=False):
         # try b = c_2 - 1
         b = c_(2) - 1
         (alpha,beta) = getAlphaBeta(b)
-        if not checkValues(array, d, b, alpha, beta) : # then we must have b = -a_1 - 1
+        if not checkValues(array, d, b, alpha, beta) :
+            # then we must have b = -a_1 - 1
             b = -a_(1) - 1
     
     (alpha,beta) = getAlphaBeta(b)
     
-    if check and not checkValues(array, d, b, alpha, beta): return False
+    if check and not checkValues(array, d, b, alpha, beta):
+        raise ValueError(
+            "Input array can't be represented with classical parameters")
     
     return (d, b, alpha, beta)
 
@@ -458,6 +669,44 @@ def distance_regular_graph_with_classical_parameters( const int d,
                                                       const int b,
                                                       const int alpha,
                                                       const int beta ):
+    r"""
+    Return a distance-regular graph $G$ with the given classical parameters.
+
+    We assume $d \geq 3$.
+    If no distance-regular graph satisfying the input parameters is found,
+    then this function will raise a ValueError
+
+    INPUT:
+
+    - ``d`` -- integer; we assume this is greater or equal than 3
+    - ``b`` -- integer
+    - ``alpha, beta`` -- numbers
+
+    OUTPUT:
+    
+    A distance-regular graph $G$ with classical parameters ``(d,b,alpha,beta)``
+
+    EXAMPLES::
+    
+        sage: g = distance_regulat_graph_with_classical_parameters(3,-2,-4,10)
+        sage: g.is_distance_regular()
+        True
+        sage: a = intersection_array_from_graph(g)
+        sage: get_classical_parameters_from_intersection_array(a)
+        (3,-2,-4,10)0
+    
+    .. NOTE::
+    
+        The outputted graph is NOT unique. There might be another graph with
+        the given classical parameters. However this function is deterministic,
+        i.e. it will always output the same graph given the same input.
+
+    TESTS::
+
+        tbd
+
+    """
+    
     def is_power_of( const int num, const int base ):
         # this functions checks if num = base^k for some k in N and return k
         # if no such k exists, then -1 is returned
@@ -487,7 +736,9 @@ def distance_regular_graph_with_classical_parameters( const int d,
             return -1
     # end q_of
 
-    assert d > 2, "only diameters >= 3"
+    if d < 3:
+        raise ValueError(
+            "We only consider distance-regular graphs with diameter >=3")
     
     if b == 1 :
         if alpha == 1 and beta + d < 2 * d:
@@ -507,7 +758,8 @@ def distance_regular_graph_with_classical_parameters( const int d,
             else: # then n = beta + 1
                 return construct_halved_cube(beta+1)
         else :
-            assert False, "All distance regular graphs with classical parameters and b=1 are classified and I could not find what you are looking for"
+            raise ValueError(
+                "No distance-regular graph with the given parameters exists")
             
     elif b == -2:
         if d == 3 and alpha == -4 and beta == 10:
@@ -547,7 +799,8 @@ def distance_regular_graph_with_classical_parameters( const int d,
         ):
             # half dual polar graph or dist. 1 or 2 in sympletic dual polar graphs
             pass
-        elif ( d == 3 and q_of(b,4) != -1 and alpha + 1 == q_binomial(5, 1, q_of(b,4))
+        elif ( d == 3 and q_of(b,4) != -1
+               and alpha + 1 == q_binomial(5, 1, q_of(b,4))
                and beta + 1 == q_binomial( 10, 1, q_of(b,4))
         ):
             # Exceptional Lie graph or E_7(1)
@@ -572,5 +825,6 @@ def distance_regular_graph_with_classical_parameters( const int d,
             # affine E_6(q)
             pass
         pass
-    #error
-    pass
+
+    raise ValueError(
+        "Can't find a distance-regular graph with the given parameters")
