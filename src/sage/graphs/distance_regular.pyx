@@ -329,7 +329,6 @@ def construct_alternating_form_graph(const int n, const int q):
 
     """
 
-    
     field = Sage_GF(q)
     fieldElems = _get_elems_of_GF(q)
     sumTable = _get_sum_table(fieldElems)
@@ -355,29 +354,29 @@ def construct_alternating_form_graph(const int n, const int q):
         sig_check()
         
         # we need to convert v into a matrix
-        
-        data = n-1 # how much data to take from v
-        index = 0 # where are we in v
-        zeros = [ 0 for i in range(0,n) ] # row of zeros
-        mat = [] # v into matrix form
-        while data >= 0:
-            row = zeros[:n-data] + v[index:index+data]
-            index = index + data
-            data -= 1
-            mat.append(row)
-        # now mat is upper triangular with entries from v
-        # so we need to fill the lower half
-        for r in range(1,n): #skip first row which is fine
-            for c in range(0,r): # in the bottom half
-                mat[r][c] = tableNegation[mat[c][r]]
 
-        #convert mat to GF(q)
-        actualMat = []
-        for row in mat:
-            actualMat.append(_convert_vector_to_GF_q(row, fieldElems))
+        mat = [ [0 for i in range(0,n)] for j in range(0,n) ]
+        for i in range(0,n):
+            for j in range(0,n):
+                if i == j:
+                    mat[i][j] = 0
+                elif i < j:
+                    index = 0
+                    # skip all rows above i
+                    add = n-1
+                    for k in range(0,i):
+                        index += add
+                        add-=1
+                    # now get to jth element
+                    index += (j-1-i)
+
+                    # finally get the element
+                    mat[i][j] = fieldElems[v[index]]
+                else : # i > j
+                    mat[i][j] = -mat[j][i]
         
         # finally check if mat is a rank2 matrix
-        if Sage_Matrix(Sage_GF(q),actualMat).rank() == 2:
+        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
             rank2Matrices.append(v) # we append v as it is smaller than mat
 
     # now we have all matrices of rank 2
@@ -386,7 +385,7 @@ def construct_alternating_form_graph(const int n, const int q):
     for v in skewSymmetricMatrices:    
         for w in rank2Matrices:
             sig_check() # check for interrupts
-            edges.append(( tuple(v), _add_vectors_over_q(sumTable,v,w) ))
+            edges.append(( v, _add_vectors_over_q(sumTable,v,w) ))
 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
