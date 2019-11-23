@@ -1,5 +1,4 @@
-# distutils: sources = sage/graphs/distance_regular_C/Core/DistanceRegular.c
-# distutils: include_dirs = sage/graphs/distance_regular_C/
+# cython: profile=True
 # -*- coding: utf-8 -*-
 r"""
 This module aims at constructing distance-regular graphs.
@@ -29,14 +28,10 @@ AUTHORS:
 # ****************************************************************************
 
 # project C import
-cimport sage.graphs.distance_regular_C as c_code #not used atm
 from cysignals.signals cimport sig_check
-from libc.stdlib cimport malloc, free
 
 # python imports
-from math import ceil, floor
 import numpy as np
-from collections import deque as queue
 
 # sage imports
 from sage.graphs.graph_generators import GraphGenerators
