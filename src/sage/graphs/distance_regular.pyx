@@ -55,42 +55,57 @@ from sage.rings.rational cimport Rational
 def profilingCython( const int repetitions=10 ):
     import time
 
-    listTime = 0
-    setTime = 0
-    dequeTime = 0
+    sumTime = 0
+    sum2Time = 0
 
-    vecs = _AllVectorsIter(8,[i for i in range(0,10)])
+    length = 9
+    q = 7
+    
+    vecs = _AllVectorsIter(length,[i for i in range(0,q)])
+    vecs1 = _AllVectorsIter(length,[i for i in Sage_GF(q)])
+    w = tuple([0 for i in range(0,length)])
+
+    elems = [x for x in Sage_GF(q)]
+    
+    tableSum = [ [0 for i in range(0,q)] for i in range(0,q)]
+    for i in range(0,q):
+        for j in range(0,q):
+            x = elems[i]
+            y = elems[j]
+            z = x+y
+            k= 0
+            while elems[k] != z:
+                k += 1
+            tableSum[i][j] = k
+        
+    
     
     for rep in range(0,repetitions):
-        start = time.time()
-        l = []
-        for v in vecs:
-            sig_check()
-            l.append(tuple(v))
-        end = time.time()
-        listTime += end-start
 
-        start = time.time()
-        s = set()
-        for v in vecs:
-            sig_check()
-            s.add(tuple(v))
-        end = time.time()
-        setTime += end-start
-
-        """start = time.time()
-        d = queue()
-        for v in vecs:
-            sig_check()
-            d.append(tuple(v))
-        end = time.time()
-        dequeTime += end-start"""
         
+        start = time.time()
+        l = [w]
+        for v in vecs:
+            sig_check()
+            w = _add_vectors_over_q(tableSum,v,w)
+            l.append(w)
+        end = time.time()
+        sumTime += end-start
+        print("sumTime %.6f" %sumTime)
+       
 
-    print("list: %d elements in %.6f time(avg)" %(len(vecs), listTime / repetitions ))
-    print("set: %d elements in %.6f time(avg)" %(len(vecs), setTime / repetitions ))
-    #print("deque: %d elements in %.6f time(avg)" %(len(vecs), dequeTime / repetitions ))
-            
+        start = time.time()
+        l = [w]
+        for v in vecs1:
+            sig_check()
+            w = _add_vectors(v,w)
+            l.append(w)
+        end = time.time()
+        sum2Time += end-start
+        print("sumTime2 %.6f" %sum2Time)
+
+    print("sum vectors of len %d in GF(%d) in  %.6f time(avg)" %(length, q, sum2Time / repetitions ))
+    print("sum vectors of len %d in GF(%d) with tables in %.6f time(avg)" %(length, q, sumTime / repetitions ))    
 
 #an iterator to iterate over all vectors of length n using the elements given
 class _AllVectorsIter:
@@ -123,20 +138,25 @@ class _AllVectorsIter:
                     break
                 self.last[i] = 0
             # now we increased self.last by 1
-            
-            if sum(self.last) == 0:
-                #then we loop back to the zero vector
-                self.start = True #to loop again next time
-                raise StopIteration
-            
-            # otherwise translate our self.last to the vector we need
-            return map(lambda x : self.elems[x], self.last)
 
+            for i in self.last:
+                if i != 0:
+                    break
+                
+            else: # we didn't break, so self.last is 0 vector
+                self.start = True
+                raise StopIteration
+
+            converted = []
+            for i in self.last:
+                converted.append(self.elems[i])
+                
+            return converted
+        
     def __len__(self):
         return self.elemsLength**(self.length)
 # end of class
             
-
 def _convert_vector_to_F_q(v,const int q):
     # takes a vector over ZZ_q and convertes it
     # to a vector over GF(q)
@@ -159,6 +179,15 @@ def _add_vectors(v, w):
     for i in range(0,n):
         result.append( v[i] + w[i] )
         
+    return tuple(result)
+
+def _add_vectors_over_q(table, v, w):
+    cdef int n = len(v)
+
+    result = []
+    for i in range(0,n):
+        result.append( table[v[i]][w[i]] )
+
     return tuple(result)
 
 def _hamming_weight( codeword ):
@@ -190,15 +219,32 @@ def _codewords_have_different_support( vec1, vec2 ):
 # START CONSTRUCTIONS
 
 def construct_bilinear_form_graph(const int d, const int e, const int q):
+    r"""
+    Return a bilienar form graph with the given parameters.
+
+    This build a graph whose vertices are all ``d``x``e`` matrices over
+    ``GF(q)``. 2 vertices are adjecent if the difference of the 2 
+    matrices has rank 1.
+
+    INPUT:
+
+    - ``d,e`` -- integers
+    - ``q`` -- a prime power
+
+    EXAMPLES:
+
+    TESTS::
+    
+    """
 
     allMatrices = IntegerVectors(length=d*e,max_part=q-1)
 
-    matricesOverq = map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
+    matricesOverq = _AllVectorsIter( d*e, [x for x in Sage_GF(q)] ) #map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
 
     rank1Matrices = []
     for v in matricesOverq:
         sig_check()
-        if Sage_Matrix(Sage_GF(q), v, nrows=d).rank() == 1:
+        if Sage_Matrix(v, nrows=d).rank() == 1:
             rank1Matrices.append(v)
 
     edges = []
@@ -212,22 +258,76 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
     return G
 
 def construct_alternating_form_graph(const int n, const int q):
+    r"""
+    Return the alternating form graph with the given parameters.
 
-    import time as t
+    This construct a graph whose vertices are all ``n``x``n`` skew symmetric
+    matrices over ``GF(q)``. 2 vertices are adjecent if and only if the
+    difference of the 2 matrices has rank 2
+
+    INPUT:
+
+    - ``n`` -- integer
+    - ``q`` -- prime power
+
+    EXAMPLES:
+
+        sage: g = construct_alternating_form_graph(5,2)
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+
+    """
+
+    import time
+
+    start = time.time()
     
-    start = t.time()
-
     field = Sage_GF(q)
     elemsField = []
     for x in field:
         elemsField.append(x)
 
-    skewSymmetricMatrices = _AllVectorsIter((n*(n-1))/2, elemsField)
-    
-    end = t.time()
-    print("done vertices: %d, in %.6f" %(len(skewSymmetricMatrices), end-start) )
+    tableSum = [[0 for i in range(0,q)] for i in range(0,q) ]
+    for i in range(0,q):
+        for j in range(0,q):
+            x = elemsField[i]
+            y = elemsField[j]
+            z = x + y
 
-    start = t.time()
+            # find k s.t. elmesField[k] = z
+            k = 0
+            while True:
+                if elemsField[k] == z:
+                    break
+                k += 1
+            
+            tableSum[i][j] = k
+
+    tableNegation = [ 0 for i in range(0,q)]
+    for i in range(0,q):
+        x = elemsField[i]
+        z = -x
+
+        k = 0
+        while True:
+            if elemsField[k] == z:
+                break
+            k += 1
+
+        tableNegation[i] = k
+
+    end = time.time()
+    print("%.6f s to create tables" %(end-start))
+
+    # now elemsField[i] + elemsField[j] = elemsField[tableSum[i][j]]
+    # and -elemsField[i] = elemsField[tableNegation[i]]
+
+    skewSymmetricMatrices = IntegerVectors(length=(n*(n-1))/2, max_part=q-1) #_AllVectorsIter((n*(n-1))/2, elemsField)
+
+
+    start = time.time()
     
     rank2Matrices = []
     for v in skewSymmetricMatrices:
@@ -248,32 +348,75 @@ def construct_alternating_form_graph(const int n, const int q):
         # so we need to fill the lower half
         for r in range(1,n): #skip first row which is fine
             for c in range(0,r): # in the bottom half
-                mat[r][c] = -mat[c][r]
+                mat[r][c] = tableNegation[mat[c][r]]
+
+        #convert mat to GF(q)
+        actualMat = []
+        for row in mat:
+            actualRow = []
+            for entry in row:
+                actualRow.append(elemsField[entry])
+            actualMat.append(actualRow)
         
         # finally check if mat is a rank2 matrix
-        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
+        if Sage_Matrix(Sage_GF(q),actualMat).rank() == 2:
             rank2Matrices.append(v) # we append v as it is smaller than mat
 
-    end = t.time()
-    print("found %d rank 2 matrices in %.6f" %(len(rank2Matrices), end-start) )
+    end = time.time()
+    print("%.6f s to find %d rank 2 matrices" %(end-start, len(rank2Matrices)))
 
-    start = t.time()
 
-    G = GraphGenerators.EmptyGraph()
-    edges = set()
+    start = time.time()
+    
+    edges = []
+    count = 0
+    limit = q**(n*(n-1) / 2) // 20
     for v in skewSymmetricMatrices:
+        count += 1
+        if count > limit:
+            print("lap %.6f" %(time.time()-start))
+            count = 0
+        
         for w in rank2Matrices:
             sig_check() # check for interrupts
-            edges.add(( tuple(v), tuple(w) ))#_add_vectors(v,w) ))
+            edges.append(( tuple(v), _add_vectors_over_q(tableSum,v,w) ))
             #G.add_edge( (tuple(v), _add_vectors(v,w)) )
 
-    end = t.time()
-    print("created  edges in %.6f" %(end-start) )
-
+    end = time.time()
+    print("%.6f s to find edges" %(end-start))
+            
+    G = Sage_Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
     return G
 
 def construct_hermitean_form_graph(const int n, const int q):
+    r"""
+    Return the Hermitean from graph with the given parameters.
+
+    We build a graph whose vertices are all ``n``x``n`` Hermitean matrices
+    over ``GF(q)``. 2 vertices are adjecent if the difference of the 2 vertices
+    has rank 1. We need ``q``=``r**2`` for some prime power ``r``
+
+    INPUT:
+
+    - ``n`` -- integer
+    - ``q`` -- prime power
+
+    EXAMPLES:
+
+        sage: g = construct_hermitean_form_graph(5,2)
+        sage: g.is_distance_regular()
+        True
+
+    .. NOTES::
+    
+        If ``q`` does not satisfy the requirements, then this function
+        will raise a ``ValueError``.
+      
+    TESTS::
+
+    """
+    
     (b,k) = is_prime_power(q, True)
     if k == 0 or k % 2 != 0:
         raise ValueError("We need q=r^2 where r is a prime power")
@@ -336,6 +479,29 @@ def construct_hermitean_form_graph(const int n, const int q):
     return G
 
 def construct_halved_cube( int n ):
+    r"""
+    Return the graph $\frac 1 2 Q_n$.
+
+    This builds the halved cube graph in ``n`` dimensions.
+    The construction is iterative, so the vertices label have no meaning.
+    
+    INPUT:
+
+    - ``n`` -- integer
+
+    EXAMPLES:
+
+        sage: g = construct_halved_cube(8) # long time for large n
+
+        # n = 14 -> ~1min
+        # n = 15 -> ~4min
+
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+
+    """
     #construct the halved cube graph 1/2 Q_n ( = Q_{n-1} ^2 )
     G = GraphGenerators.CubeGraph(n-1)
     # now square the graph
@@ -352,6 +518,22 @@ def construct_halved_cube( int n ):
     return G
 
 def construct_extended_ternary_Golay_code_graph():
+    r"""
+    Return the graph associated with the extended ternary Golay code.
+
+    The graph constructed has  the codewords of
+    the extended ternary Golay code as vertices.
+    2 vertices are adjecent if their difference is a codeword of
+    hamming weight 12.
+
+    EXAMPLES:
+
+        sage: g = construct_extended_ternary_Golay_code_graph()
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+    """
 
     V = VectorSpace(Sage_GF(3),12) # underlying vectorspace
     C = V.span([ (1, 0, 0, 0, 0, 0, 2, 0, 1, 2, 1, 2),
@@ -376,6 +558,20 @@ def construct_extended_ternary_Golay_code_graph():
     return G
 
 def construct_large_Witt_graph():
+    r"""
+    Return the large Witt graph.
+
+    This builds the large Witt graph. Each vertex represents a codeword.
+
+    EXAMPLES:
+
+        sage: g = construct_large_Witt_graph()
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+
+    """
     # G is the generator matrix of the extended binary Goolay code
     G = np.array([ [1,0,0,0,0,0,0,0,0,0,0,0, 1,0,0,1,1,1,1,1,0,0,0,1],
                    [0,1,0,0,0,0,0,0,0,0,0,0, 0,1,0,0,1,1,1,1,1,0,1,0],
@@ -415,6 +611,23 @@ def construct_large_Witt_graph():
     return W
 
 def construct_truncated_Witt_graph():
+    r"""
+    Return the truncated Witt graph.
+
+    This builds the large Witt graph, then removes
+    all vertices whose codeword start with a 1.
+
+    EXAMPLES:
+
+        sage: g = construct_large_Witt_graph()
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+
+        sage: g = construct_large_Witt_graph()
+        ...
+    """
     # get large witt graph and remove all vertices which start with a 1
     G = construct_large_Witt_graph()
     G.delete_vertices(filter( lambda x : x[0] == 1, G.vertices() ))
@@ -424,7 +637,33 @@ def construct_truncated_Witt_graph():
     return G
 
 def construct_Grassman( const int q, const int n, const int input_e ):
-    # this is too slow
+    r"""
+
+    Return a Grassman graph with parameters ``(q,n,e)``.
+
+    This build the Grassman graph $J_q(n,e)$. That is, for a vector
+    space $V = \mathbb F(q))^n$ the output is a graph on the subspaces
+    of dimension $e$ where 2 subspaces are adjancent if their intersection
+    has dimension $e-1$.
+
+    INPUT:
+   
+    - ``q`` -- a prime power
+    - ``n, e`` -- integers with ``n >= e``
+
+    EXAMPLES:
+
+        tbd
+
+    TESTS::
+
+        tbd
+
+    """
+    if n < input_e:
+        raise ValueError(
+            "Impossible parameters n > e (%d > %d)" %(n,input_e) )
+    
     V = VectorSpace(Sage_GF(q),n) # vector space over F_q of dim n
 
     # get a generator of subspaces
@@ -435,10 +674,28 @@ def construct_Grassman( const int q, const int n, const int input_e ):
 
     #add edges
     edges = []
+
+    # in order to find U s.t. W intersection U has dim e-1
+    # we pick S of dim e-1 in W
+    # we pick v not in W ( we pick the lift of v in V/W)
+    # and let U = span(v,S)
     for W in V.subspaces(e):
-        for U in V.subspaces(e):
-            if W.intersection(U).dimension == e-1:
+        for S in W.subspaces(e-1):
+            # get a basis of S
+            basis = []
+            for v in S.basis():
+                basis.append(v)
+
+            # now get elements not in W
+            quotientW = V.quotient(W)
+            for w in quotientW[1:]: #we skip the first vector which is 0
+                v = quotientW.lift(w)
+                basis.append(v)
+                U = V.span( basis )
+                
                 edges.append( (W.basis_matrix(), U.basis_matrix()) )
+                # now remove v fom basis
+                basis.pop()
 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Grassman graph J_%d(%d,%d)" % (q, n, input_e) )
@@ -449,10 +706,35 @@ def construct_Grassman( const int q, const int n, const int input_e ):
 
 # given a graph G it halves the graph
 def halve_graph(G) :
-    # we halve the graph G
-    # we assume G is bipartite
-    # this is  faster
-    assert G.is_bipartite()
+    r"""
+    Return a half of this graph.
+
+    Given a graph $G$ which is assumed to be bipartite,
+    this function returns a graph $H$ which is half of $G$.
+    That is, $H$ is a subgraph of $G$ consisting of all vertices in one
+    of the 2 distinct partitions of G where $x,y \in H$ are
+    adjecent if and only if $d(x,y) = 2$ in $G$.
+
+    INPUT:
+
+    - ``G`` : a bipartite graph
+
+    EXAMPLES:
+
+        tbd
+
+    ..NOTE::
+    
+        This function will raise a ``ValueError``
+        if the input graph is not bipartite.
+
+    TESTS::
+    """
+    
+    if not G.is_bipartite():
+        raise ValueError(
+            "The input graph is not bipartite")
+    
     H = GraphGenerators.EmptyGraph()
     queue = [G.vertices()[0]] # queue of vertex to follow
     H.add_vertex(G.vertices()[0])
