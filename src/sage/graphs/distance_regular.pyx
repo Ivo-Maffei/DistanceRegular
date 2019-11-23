@@ -52,72 +52,110 @@ from sage.rings.rational cimport Rational
 ################################################################################
 # UTILITY FUNCTIONS
 
-def profilingCython( const int repetitions=10 ):
+def iteratorSpeedTest(n,q):
+    r"""
+    input n,q.
+
+    appends to a empty list all vectors of length n with entries [0..q)
+    
+    it does the above with _AllIntegerVectrosIter and IntegerVectors
+    it prints the time taken
+
+    _AllIntegerVectorsIter is way faster (0.7s vs 35s)
+    """
+    import time
+    
+    start = time.time()
+    l = []
+    vecs = _AllIntegerVectorsIter(n,q)
+    for v in vecs:
+        l.append(v)
+    end = time.time()
+    print("my vectors iterator %.6f (%d vectors)" %(end-start, len(l)) )
+
+    start = time.time()
+    l2 = []
+    vecs2 = IntegerVectors(length=n,max_part=q-1)
+    for v in vecs2:
+        l2.append(v)
+    end = time.time()
+    print("sage vectors iterator %.6f (%d vectors)" %(end-start, len(l2)) )
+
+def sumSpeedTest(n,q):
+    """
+    result is that the speed is basically the same, but this crap is slow!!!
+    n = 10^7 is roughly  3.5 s
+
+    (should try using C)
+    """
     import time
 
-    sumTime = 0
-    sum2Time = 0
+    start = time.time()
+    fieldElems = _get_elems_of_GF(q)
+    sumTable = _get_sum_table(fieldElems)
+    end = time.time()
+    print("created tables in %.6f"%(end-start))
 
-    length = 9
-    q = 7
+    start = time.time()
+    x = fieldElems[0]
+    for i in range(0,n):
+        sig_check()
+        y = fieldElems[i % q]
+        x += y
+    end = time.time()
+    print("summed %d elems over GF(%d) in %.6f"%(n,q,end-start))
+
+    start = time.time()
+    cdef int x1 = 0
+    cdef int y1 = 0
+    for i in range(0,n):
+        sig_check()
+        y1 = i % q
+        x1 = sumTable[x1][y1]
+    end = time.time()
+    print("summed %d elems over GF(%d) in %.6f using tables"%(n,q,end-start))
+
+def listSumSpeedTest(n,q):
+    r"""
+    not surprisingly the first is way quicker (roughly half of the time)
+    """
+    import time
+
+    start = time.time()
+    fieldElems = _get_elems_of_GF(q)
+    sumTable = _get_sum_table(fieldElems)
+    end = time.time()
+    print("created tables in %.6f"%(end-start))
+
+    vecs = _AllIntegerVectorsIter(n,q)
+
+    start = time.time()
+    x = tuple([0 for i in range(0,n)])
+    l = []
+    for v in vecs:
+        sig_check()
+        x = _add_vectors_over_q(sumTable,x,v)
+        l.append(x)
+    end = time.time()
+    print("summed %d vectors of length %d over GF(%d) in %.6f using tables"%(q**n,n,q,end-start))
+
+    start = time.time()
+    x = tuple([fieldElems[0] for i in range(0,n)])
+    l = []
+    for v in vecs:
+        sig_check()
+        y = _convert_vector_to_GF_q(v,fieldElems)
+        x = _add_vectors(x,y)
+        l.append(x)
+    end = time.time()
+    print("summed %d vectors of length %d over GF(%d) in %.6f"%(q**n,n,q,end-start))
     
-    vecs = _AllVectorsIter(length,[i for i in range(0,q)])
-    vecs1 = _AllVectorsIter(length,[i for i in Sage_GF(q)])
-    w = tuple([0 for i in range(0,length)])
-
-    elems = [x for x in Sage_GF(q)]
-    
-    tableSum = [ [0 for i in range(0,q)] for i in range(0,q)]
-    for i in range(0,q):
-        for j in range(0,q):
-            x = elems[i]
-            y = elems[j]
-            z = x+y
-            k= 0
-            while elems[k] != z:
-                k += 1
-            tableSum[i][j] = k
-        
-    
-    
-    for rep in range(0,repetitions):
-
-        
-        start = time.time()
-        l = [w]
-        for v in vecs:
-            sig_check()
-            w = _add_vectors_over_q(tableSum,v,w)
-            l.append(w)
-        end = time.time()
-        sumTime += end-start
-        print("sumTime %.6f" %sumTime)
-       
-
-        start = time.time()
-        l = [w]
-        for v in vecs1:
-            sig_check()
-            w = _add_vectors(v,w)
-            l.append(w)
-        end = time.time()
-        sum2Time += end-start
-        print("sumTime2 %.6f" %sum2Time)
-
-    print("sum vectors of len %d in GF(%d) in  %.6f time(avg)" %(length, q, sum2Time / repetitions ))
-    print("sum vectors of len %d in GF(%d) with tables in %.6f time(avg)" %(length, q, sumTime / repetitions ))    
 
 #an iterator to iterate over all vectors of length n using the elements given
-class _AllVectorsIter:
-    def __init__(self, n, elemsIterator ):
-        self.elems = []
-        for i in elemsIterator:
-            if i not in self.elems:
-                self.elems.append(i)
-
-        # now self.elems is a list of all the elements passed without duplication
-        self.length = n
-        self.elemsLength = len(self.elems)
+class _AllIntegerVectorsIter:
+    def __init__(self, const int n, const int q ):
+        self.q = q
+        self.n = n
 
     def __iter__(self):
         self.start = True #this means to start fresh
@@ -129,47 +167,61 @@ class _AllVectorsIter:
     def next(self): # this is python 2
         if self.start:
             self.start = False
-            self.last = [0 for i in range(0,self.length) ] # this represents a number base self.elemsLength
-            return [ self.elems[0] for i in range(0,self.length)]
+            self.last = [0 for i in range(0,self.n) ]
         else:
-            for i in range(self.length-1, -1, -1):
+            for i in range(self.n-1, -1, -1):
                 self.last[i] += 1
-                if self.last[i] != self.elemsLength:
+                if self.last[i] != self.q:
                     break
                 self.last[i] = 0
             # now we increased self.last by 1
 
-            for i in self.last:
-                if i != 0:
-                    break
-                
             else: # we didn't break, so self.last is 0 vector
                 self.start = True
                 raise StopIteration
 
-            converted = []
-            for i in self.last:
-                converted.append(self.elems[i])
-                
-            return converted
-        
-    def __len__(self):
-        return self.elemsLength**(self.length)
-# end of class
-            
-def _convert_vector_to_F_q(v,const int q):
-    # takes a vector over ZZ_q and convertes it
-    # to a vector over GF(q)
-    # the map used is not a homomorphism!!!
-    # we rely on the fact that iterating over finite fields always
-    # happens in the same order
-    
-    field = Sage_GF(q)
-    fieldElements = []
-    for i in field:
-        fieldElements.append(i)
+        # both branches return self.last
+        return tuple(self.last)
 
-    newVector = map( lambda x : fieldElements[x], v)
+    def __len__(self):
+        return self.q**(self.n)
+# end of class
+
+def _get_elems_of_GF( const int q):
+    elems = []
+
+    for x in Sage_GF(q):
+        elems.append(x)
+
+    return elems
+
+def _get_sum_table( elems ):
+    cdef int n = len(elems)
+
+    table = [ [0 for i in range(0,n)] for j in range(0,n) ]
+    for i in range(0,n):
+        for j in range(0,n):
+            x = elems[i]
+            y = elems[j]
+            z = x+y
+
+            k = 0
+            while elems[k] != z:
+                k += 1
+
+            table[i][j] = k
+
+    return table
+            
+def _convert_vector_to_GF_q(v,elems):
+    r"""
+    Applies the map ``i`` $\mapsto$ ``elems[i]`` to ``v``
+    """
+    
+    newVector = []
+    for i in v:
+        newVector.append(elems[i])
+        
     return newVector
 
 def _add_vectors(v, w):
@@ -198,7 +250,9 @@ def _hamming_weight( codeword ):
     return weight
 
 def _hamming_distance( v, w ):
-    assert len(v) == len(w), "Can't compute Hamming distance of 2 vectors of different size!"
+    assert( len(v) == len(w),
+         "Can't compute Hamming distance of 2 vectors of different size!")
+         
     cdef int counter = 0
     for i in range(0, len(v)):
         if ( v[i] != w[i] ):
@@ -236,22 +290,22 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
     TESTS::
     
     """
-
-    allMatrices = IntegerVectors(length=d*e,max_part=q-1)
-
-    matricesOverq = _AllVectorsIter( d*e, [x for x in Sage_GF(q)] ) #map( lambda x: _convert_vector_to_F_q(x,q), allMatrices)
+    matricesOverq = _AllIntegerVectorsIter( d*e, q )
+    fieldElems = _get_elems_of_GF(q)
+    sumTable = _get_sum_table(fieldElems)
 
     rank1Matrices = []
     for v in matricesOverq:
         sig_check()
-        if Sage_Matrix(v, nrows=d).rank() == 1:
+        w =  _convert_vector_to_GF_q(v,fieldElems)
+        if Sage_Matrix(Sage_GF(q), w, nrows=d).rank() == 1:
             rank1Matrices.append(v)
 
     edges = []
     for v in matricesOverq:
         for w in rank1Matrices:
             sig_check() # this loop may take a long time, so check for interrupts
-            edges.append( ( tuple(v), _add_vectors(v,w) ) )
+            edges.append( ( v, _add_vectors_over_q(sumTable,v,w) ) )
     
     G = Sage_Graph(edges, format='list_of_edges')    
     G.name("Bilinear form graphs over F_%d with parameters (%d,%d)" %(q,d,e) )
@@ -280,54 +334,26 @@ def construct_alternating_form_graph(const int n, const int q):
 
     """
 
-    import time
-
-    start = time.time()
     
     field = Sage_GF(q)
-    elemsField = []
-    for x in field:
-        elemsField.append(x)
-
-    tableSum = [[0 for i in range(0,q)] for i in range(0,q) ]
-    for i in range(0,q):
-        for j in range(0,q):
-            x = elemsField[i]
-            y = elemsField[j]
-            z = x + y
-
-            # find k s.t. elmesField[k] = z
-            k = 0
-            while True:
-                if elemsField[k] == z:
-                    break
-                k += 1
-            
-            tableSum[i][j] = k
+    fieldElems = _get_elems_of_GF(q)
+    sumTable = _get_sum_table(fieldElems)
 
     tableNegation = [ 0 for i in range(0,q)]
     for i in range(0,q):
-        x = elemsField[i]
+        x = fieldElems[i]
         z = -x
 
         k = 0
-        while True:
-            if elemsField[k] == z:
-                break
+        while fieldElems[k] != z:
             k += 1
 
         tableNegation[i] = k
 
-    end = time.time()
-    print("%.6f s to create tables" %(end-start))
+    # now fieldElems[i] + fieldElems[j] = fieldElems[sumTable[i][j]]
+    # and -fieldElems[i] = fieldElems[tableNegation[i]]
 
-    # now elemsField[i] + elemsField[j] = elemsField[tableSum[i][j]]
-    # and -elemsField[i] = elemsField[tableNegation[i]]
-
-    skewSymmetricMatrices = IntegerVectors(length=(n*(n-1))/2, max_part=q-1) #_AllVectorsIter((n*(n-1))/2, elemsField)
-
-
-    start = time.time()
+    skewSymmetricMatrices = _AllIntegerVectorsIter( (n*(n-1))/2, q)
     
     rank2Matrices = []
     for v in skewSymmetricMatrices:
@@ -353,38 +379,20 @@ def construct_alternating_form_graph(const int n, const int q):
         #convert mat to GF(q)
         actualMat = []
         for row in mat:
-            actualRow = []
-            for entry in row:
-                actualRow.append(elemsField[entry])
-            actualMat.append(actualRow)
+            actualMat.append(_convert_vector_to_GF_q(row, fieldElems))
         
         # finally check if mat is a rank2 matrix
         if Sage_Matrix(Sage_GF(q),actualMat).rank() == 2:
             rank2Matrices.append(v) # we append v as it is smaller than mat
 
-    end = time.time()
-    print("%.6f s to find %d rank 2 matrices" %(end-start, len(rank2Matrices)))
-
-
-    start = time.time()
+    # now we have all matrices of rank 2
     
     edges = []
-    count = 0
-    limit = q**(n*(n-1) / 2) // 20
-    for v in skewSymmetricMatrices:
-        count += 1
-        if count > limit:
-            print("lap %.6f" %(time.time()-start))
-            count = 0
-        
+    for v in skewSymmetricMatrices:    
         for w in rank2Matrices:
             sig_check() # check for interrupts
-            edges.append(( tuple(v), _add_vectors_over_q(tableSum,v,w) ))
-            #G.add_edge( (tuple(v), _add_vectors(v,w)) )
+            edges.append(( tuple(v), _add_vectors_over_q(sumTable,v,w) ))
 
-    end = time.time()
-    print("%.6f s to find edges" %(end-start))
-            
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
     return G
@@ -425,22 +433,26 @@ def construct_hermitean_form_graph(const int n, const int q):
     r = b**(k/2)
     # so r^2 = b^k = q
 
-    # this is the bar automorphism on GF(q)
-    def bar( x ):
-        return x**r
+    FqElems= _get_elems_of_GF(q)
+    sumTableq = _get_sum_table(FqElems)
+    
+    FrElems = _get_elems_of_GF(r)
+    sumTabler = _get_sum_table(FrElems)
 
-    FqElems= []
-    for x in Sage_GF(q):
-        FqElems.append(x)
-
-    FrElems = []
-    for x in Sage_GF(r):
-        FrElems.append(x)
-        
+    barTable = []
+    for i in range(0,q):
+        x = FqElems[i]
+        z = x**r
+        k = 0
+        while FqElems[k] != z:
+            k += 1
+        barTable[i] = k
+    # FqElems[i]**r = FqElems[barTable[i]]
+    
     # find all hermitean matrices
     # we need the upper half and the diagonal
-    allUpperHalves = _AllVectorsIter( (n*(n-1))/2, FqElems)
-    allDiagonals = _AllVectorsIter(n, FrElems)
+    allUpperHalves = _AllIntegerVectorsIter( (n*(n-1))/2, q)
+    allDiagonals = _AllIntegerVectorsIter(n, r)
 
     rank1Matrices = []
     for up in allUpperHalves:
@@ -461,10 +473,15 @@ def construct_hermitean_form_graph(const int n, const int q):
             # so we need to fill the lower half
             for r in range(1,n): #skip first row which is fine
                 for c in range(0,r): # in the bottom half
-                    mat[r][c] = bar(mat[c][r])
+                    mat[r][c] = barTable[mat[c][r]]
+
+            # now convert mat !!!THIS IS WRONG WE TREAT DIAGONAL AS F_q INSTEAD OF F_r
+            actualMat = []
+            for row in mat:
+                actualMat.append(_convert_vector_to_GF_q(row,FqElems))
 
             # now mat is a matrix
-            if Sage_Matrix(Sage_GF(q),mat).rank() == 1:
+            if Sage_Matrix(Sage_GF(q), actualMat).rank() == 1:
                 rank1Matrices.append( (diag, up) ) # no need to store the whole matrix
 
     edges = []
@@ -472,7 +489,7 @@ def construct_hermitean_form_graph(const int n, const int q):
         for diag in allDiagonals:
             for (d,u) in rank1Matrices:
                 sig_check()
-                edges.append(  ( (tuple(diag),tuple(up)), (_add_vectors(diag,d), _add_vectors(up,u)) )  )
+                edges.append(  ( (tuple(diag),tuple(up)), (_add_vectors_over_q(sumTableq,diag,d), _add_vectors(sumTableq,up,u)) )  )
                 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Hermitean form graph on (F_%d)^%d" %(q,n) )
