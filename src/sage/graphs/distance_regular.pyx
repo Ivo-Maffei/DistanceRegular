@@ -93,7 +93,7 @@ def sumSpeedTest(n,q):
 
     start = time.time()
     x = fieldElems[0]
-    for i in range(0,n):
+    for i in range(n):
         sig_check()
         y = fieldElems[i % q]
         x += y
@@ -103,12 +103,101 @@ def sumSpeedTest(n,q):
     start = time.time()
     cdef int x1 = 0
     cdef int y1 = 0
-    for i in range(0,n):
+    for i in range(n):
         sig_check()
         y1 = i % q
         x1 = sumTable[x1][y1]
     end = time.time()
     print("summed %d elems over GF(%d) in %.6f using tables"%(n,q,end-start))
+
+def listSpeedTest(n,q):
+    import time
+
+    vecs = _AllIntegerVectorsIter(n,q)
+    print("number of vectors %d" %(len(vecs)))
+
+    start = time.time()
+    l1 = []
+    for v in vecs:
+        sig_check()
+        l1.append(v)
+    end = time.time()
+    print("using python list %.6f"%(end-start))
+
+    start = time.time()
+    cdef list l2 = []
+    for v in vecs:
+        sig_check()
+        l2.append(v)
+    end = time.time()
+    print("using cython list with declared type %.6f"%(end-start))
+
+    start = time.time()
+    cdef long n1 = len(vecs)
+    l3 = [None] * n1
+    cdef long i1 = 0
+    for v in vecs:
+        sig_check()
+        l3[i1] = v
+        i1 += 1
+    end = time.time()
+    print("using python list with preallocated memory %.6f"%(end-start))
+
+    start = time.time()
+    cdef long n2 = len(vecs)
+    cdef list l4 = [None] * n2
+    cdef long i2 = 0
+    for v in vecs:
+        sig_check()
+        l4[i2] = v
+        i2 += 1
+    end = time.time()
+    print("using cython list with preallocated memory and declared type %.6f"%(end-start))
+
+def listSpeedTest2(n,q):
+    import time
+
+    vecs = _AllIntegerVectorsIter(n,q)
+    print("number of vectors %d" %(len(vecs)))
+
+    start = time.time()
+    cdef long n2 = len(vecs)
+    cdef list l4 = [None] * n2
+    cdef long i2 = 0
+    for v in vecs:
+        sig_check()
+        l4[i2] = v
+        i2 += 1
+    end = time.time()
+    print("using cython list with preallocated memory and declared type %.6f"%(end-start))
+
+    start = time.time()
+    cdef long n1 = len(vecs)
+    l3 = [None] * n1
+    cdef long i1 = 0
+    for v in vecs:
+        sig_check()
+        l3[i1] = v
+        i1 += 1
+    end = time.time()
+    print("using python list with preallocated memory %.6f"%(end-start))
+
+    start = time.time()
+    cdef list l2 = []
+    for v in vecs:
+        sig_check()
+        l2.append(v)
+    end = time.time()
+    print("using cython list with declared type %.6f"%(end-start))
+    
+    start = time.time()
+    l1 = []
+    for v in vecs:
+        sig_check()
+        l1.append(v)
+    end = time.time()
+    print("using python list %.6f"%(end-start))
+
 
 def listSumSpeedTest(n,q):
     r"""
@@ -125,7 +214,7 @@ def listSumSpeedTest(n,q):
     vecs = _AllIntegerVectorsIter(n,q)
 
     start = time.time()
-    x = tuple([0 for i in range(0,n)])
+    x = tuple([0 for i in range(n)])
     l = []
     for v in vecs:
         sig_check()
@@ -135,7 +224,7 @@ def listSumSpeedTest(n,q):
     print("summed %d vectors of length %d over GF(%d) in %.6f using tables"%(q**n,n,q,end-start))
 
     start = time.time()
-    x = tuple([fieldElems[0] for i in range(0,n)])
+    x = tuple([fieldElems[0] for i in range(n)])
     l = []
     for v in vecs:
         sig_check()
@@ -162,7 +251,7 @@ class _AllIntegerVectorsIter:
     def next(self): # this is python 2
         if self.start:
             self.start = False
-            self.last = [0 for i in range(0,self.n) ]
+            self.last = [0 for i in range(self.n) ]
         else:
             for i in range(self.n-1, -1, -1):
                 self.last[i] += 1
@@ -193,9 +282,9 @@ def _get_elems_of_GF( const int q):
 def _get_sum_table( elems ):
     cdef int n = len(elems)
 
-    table = [ [0 for i in range(0,n)] for j in range(0,n) ]
-    for i in range(0,n):
-        for j in range(0,n):
+    table = [ [0 for i in range(n)] for j in range(n) ]
+    for i in range(n):
+        for j in range(n):
             x = elems[i]
             y = elems[j]
             z = x+y
@@ -223,7 +312,7 @@ def _add_vectors(v, w):
     cdef int n = len(v)
     
     result = []
-    for i in range(0,n):
+    for i in range(n):
         result.append( v[i] + w[i] )
         
     return tuple(result)
@@ -232,7 +321,7 @@ def _add_vectors_over_q(table, v, w):
     cdef int n = len(v)
 
     result = []
-    for i in range(0,n):
+    for i in range(n):
         result.append( table[v[i]][w[i]] )
 
     return tuple(result)
@@ -249,7 +338,7 @@ def _hamming_distance( v, w ):
          "Can't compute Hamming distance of 2 vectors of different size!")
          
     cdef int counter = 0
-    for i in range(0, len(v)):
+    for i in range(len(v)):
         if ( v[i] != w[i] ):
             counter = counter + 1
     
@@ -307,45 +396,12 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
     return G
 
 def construct_alternating_form_graph(const int n, const int q):
-    r"""
-    Return the alternating form graph with the given parameters.
-
-    This construct a graph whose vertices are all ``n``x``n`` skew symmetric
-    matrices over ``GF(q)``. 2 vertices are adjecent if and only if the
-    difference of the 2 matrices has rank 2
-
-    INPUT:
-
-    - ``n`` -- integer
-    - ``q`` -- prime power
-
-    EXAMPLES:
-
-        sage: g = construct_alternating_form_graph(5,2)
-        sage: g.is_distance_regular()
-        True
-
-    TESTS::
-
-    """
 
     field = Sage_GF(q)
     fieldElems = _get_elems_of_GF(q)
     sumTable = _get_sum_table(fieldElems)
 
-    tableNegation = [ 0 for i in range(0,q)]
-    for i in range(0,q):
-        x = fieldElems[i]
-        z = -x
-
-        k = 0
-        while fieldElems[k] != z:
-            k += 1
-
-        tableNegation[i] = k
-
     # now fieldElems[i] + fieldElems[j] = fieldElems[sumTable[i][j]]
-    # and -fieldElems[i] = fieldElems[tableNegation[i]]
 
     skewSymmetricMatrices = _AllIntegerVectorsIter( (n*(n-1))/2, q)
     
@@ -355,16 +411,16 @@ def construct_alternating_form_graph(const int n, const int q):
         
         # we need to convert v into a matrix
 
-        mat = [ [0 for i in range(0,n)] for j in range(0,n) ]
-        for i in range(0,n):
-            for j in range(0,n):
+        mat = [ [0 for i in range(n)] for j in range(n) ]
+        for i in range(n):
+            for j in range(n):
                 if i == j:
                     mat[i][j] = 0
                 elif i < j:
                     index = 0
                     # skip all rows above i
                     add = n-1
-                    for k in range(0,i):
+                    for k in range(i):
                         index += add
                         add-=1
                     # now get to jth element
@@ -386,6 +442,60 @@ def construct_alternating_form_graph(const int n, const int q):
         for w in rank2Matrices:
             sig_check() # check for interrupts
             edges.append(( v, _add_vectors_over_q(sumTable,v,w) ))
+
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
+    return G
+
+def construct_alternating_form_graph2(const int n, const int q):
+
+    field = Sage_GF(q)
+    fieldElems = _get_elems_of_GF(q)
+    sumTable = _get_sum_table(fieldElems)
+
+    # now fieldElems[i] + fieldElems[j] = fieldElems[sumTable[i][j]]
+
+    skewSymmetricMatrices = _AllIntegerVectorsIter( (n*(n-1))/2, q)
+    
+    rank2Matrices = []
+    for v in skewSymmetricMatrices:
+        sig_check()
+        
+        # we need to convert v into a matrix
+
+        mat = [ [0 for i in range(n)] for j in range(n) ]
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    mat[i][j] = 0
+                elif i < j:
+                    index = 0
+                    # skip all rows above i
+                    add = n-1
+                    for k in range(i):
+                        index += add
+                        add-=1
+                    # now get to jth element
+                    index += (j-1-i)
+
+                    # finally get the element
+                    mat[i][j] = fieldElems[v[index]]
+                else : # i > j
+                    mat[i][j] = -mat[j][i]
+        
+        # finally check if mat is a rank2 matrix
+        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
+            rank2Matrices.append(v) # we append v as it is smaller than mat
+
+    # now we have all matrices of rank 2
+
+    cdef list edges = [None]*(len(skewSymmetricMatrices)*len(rank2Matrices))
+    index = 0
+    for v in skewSymmetricMatrices:    
+        for w in rank2Matrices:
+            sig_check() # check for interrupts
+            edges[index] = ( v, _add_vectors_over_q(sumTable,v,w) )
+            index += 1
 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
@@ -432,16 +542,6 @@ def construct_hermitean_form_graph(const int n, const int q):
     
     FrElems = _get_elems_of_GF(r)
     sumTabler = _get_sum_table(FrElems)
-
-    barTable = []
-    for i in range(0,q):
-        x = FqElems[i]
-        z = x**r
-        k = 0
-        while FqElems[k] != z:
-            k += 1
-        barTable[i] = k
-    # FqElems[i]**r = FqElems[barTable[i]]
     
     # find all hermitean matrices
     # we need the upper half and the diagonal
@@ -450,32 +550,38 @@ def construct_hermitean_form_graph(const int n, const int q):
 
     rank1Matrices = []
     for up in allUpperHalves:
+        # create a matrix using up and leave diagonal 0
+        mat = [ [0 for i in range(n)] for j in range(n) ]
+
+        for i in range(n):
+            for j in range(n):
+                # create mat[i][j]
+                if i == j:
+                    mat[i][j] = 0
+                elif i < j:
+                    index = 0
+                    # skip all rows above i
+                    add = n-1
+                    for k in range(i):
+                        index += add
+                        add-=1
+                    # now get to jth element
+                    index += (j-1-i)
+
+                    # finally get the element
+                    mat[i][j] = FqElems[up[index]]
+                else: # i > j
+                    mat[i][j] = (mat[j][i])**r
+
         for diag in allDiagonals:
-            # compose the matrix
             sig_check()
 
-            data = n-1 # how much data to take from v
-            index = 0 # where are we in v
-            zeros = [ 0 for i in range(0,n) ] # row of zeros
-            mat = [] # v into matrix form
-            while data >= 0:
-                row = zeros[:n-data-1] + diag[index] + up[index:index+data]
-                index = index + data
-                data -= 1
-                mat.append(row)
-            # now mat is upper triangular with entries from up
-            # so we need to fill the lower half
-            for r in range(1,n): #skip first row which is fine
-                for c in range(0,r): # in the bottom half
-                    mat[r][c] = barTable[mat[c][r]]
-
-            # now convert mat !!!THIS IS WRONG WE TREAT DIAGONAL AS F_q INSTEAD OF F_r
-            actualMat = []
-            for row in mat:
-                actualMat.append(_convert_vector_to_GF_q(row,FqElems))
-
+            # fix the diagonal
+            for i in range(n):
+                mat[i][i] = FrElems[diag[i]]
+                
             # now mat is a matrix
-            if Sage_Matrix(Sage_GF(q), actualMat).rank() == 1:
+            if Sage_Matrix(Sage_GF(q), mat).rank() == 1:
                 rank1Matrices.append( (diag, up) ) # no need to store the whole matrix
 
     edges = []
@@ -483,7 +589,7 @@ def construct_hermitean_form_graph(const int n, const int q):
         for diag in allDiagonals:
             for (d,u) in rank1Matrices:
                 sig_check()
-                edges.append(  ( (tuple(diag),tuple(up)), (_add_vectors_over_q(sumTableq,diag,d), _add_vectors(sumTableq,up,u)) )  )
+                edges.append(  ( (diag,up), (_add_vectors_over_q(sumTabler,diag,d), _add_vectors(sumTableq,up,u)) )  )
                 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Hermitean form graph on (F_%d)^%d" %(q,n) )
@@ -688,7 +794,7 @@ def construct_Grassman( const int q, const int n, const int input_e ):
 
     # in order to find U s.t. W intersection U has dim e-1
     # we pick S of dim e-1 in W
-    # we pick v not in W ( we pick the lift of v in V/W)
+    # we pick v not in W ( we pick the lift of w in V/W)
     # and let U = span(v,S)
     for W in V.subspaces(e):
         for S in W.subspaces(e-1):
@@ -702,7 +808,9 @@ def construct_Grassman( const int q, const int n, const int input_e ):
             for w in quotientW[1:]: #we skip the first vector which is 0
                 v = quotientW.lift(w)
                 basis.append(v)
-                U = V.span( basis )
+                U = V.span( basis )# we could get rid of this and simple row-reduce basis
+                # that is we represents a v.s. as the row reduced matrix whose rowspace (or colspace)
+                # is the v.s.
                 
                 edges.append( (W.basis_matrix(), U.basis_matrix()) )
                 # now remove v fom basis
@@ -926,7 +1034,7 @@ def get_classical_parameters_from_intersection_array( array, check=False):
 
     def checkValues(arr, const int d, const int b, alpha, beta):
         trial = intersection_array_from_classical_parameters(d, b, alpha, beta)
-        for i in range(0, 2*d):
+        for i in range(2*d):
             if trial[i] != arr[i] : return False
         
         return True
