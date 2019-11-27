@@ -589,7 +589,7 @@ def construct_hermitean_form_graph(const int n, const int q):
         for diag in allDiagonals:
             for (d,u) in rank1Matrices:
                 sig_check()
-                edges.append(  ( (diag,up), (_add_vectors_over_q(sumTabler,diag,d), _add_vectors(sumTableq,up,u)) )  )
+                edges.append(  ( (diag,up), (_add_vectors_over_q(sumTabler,diag,d), _add_vectors_over_q(sumTableq,up,u)) )  )
                 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Hermitean form graph on (F_%d)^%d" %(q,n) )
@@ -1068,8 +1068,8 @@ def get_classical_parameters_from_intersection_array( array, check=False):
 
 def distance_regular_graph_with_classical_parameters( const int d,
                                                       const int b,
-                                                      const int alpha,
-                                                      const int beta ):
+                                                      input_alpha,
+                                                      input_beta ):
     r"""
     Return a distance-regular graph $G$ with the given classical parameters.
 
@@ -1141,6 +1141,9 @@ def distance_regular_graph_with_classical_parameters( const int d,
         raise ValueError(
             "We only consider distance-regular graphs with diameter >=3")
     
+    alpha = Rational(input_alpha)
+    beta = Rational(input_beta)
+    
     if b == 1 :
         if alpha == 1 and beta + d < 2 * d:
             # Johnson Graph
@@ -1176,14 +1179,14 @@ def distance_regular_graph_with_classical_parameters( const int d,
     
     elif b < 0 and is_prime_power(b):
         if alpha +1 == (1 + b*b)/(1 + b) and beta +1 == q_binomial(d+1,1,b):
-            # U(2d,r) 
-            pass
+            # U(2d,r)
+            return GraphGenerators.UnitaryDualPolarGraph(2*d,-b)
         elif d == 3 and alpha + 1 == 1 / (1+b) and beta + 1 == q_binomial(3,1,b):
             # Triality graph
             pass
         elif alpha + 1 == b and beta + 1 == b**d:
-            #Hermitian form
-            pass
+            q = (-b)**2 # b = -r
+            return construct_hermitean_form_graph(d,q)
         pass
     
     elif is_prime_power(b):
@@ -1193,6 +1196,11 @@ def distance_regular_graph_with_classical_parameters( const int d,
             pass
         elif alpha == 0 and is_power_of( beta, b ) in {0, 0.5, 1, 1.5, 2}:
             # dual polar graphs
+            e = is_power_of( beta, b )
+            if e == 1:
+                #dual sympletic
+                return GraphGenerators.SymplecticDualPolarGraph(2*d, b)
+            
             pass
         elif ( q_of(b,2) != -1 and alpha + 1 == q_binomial(3, 1, q_of(b,2))
                and beta + 1 in { q_binomial(2*d+2, 1, q_of(b,2)),
