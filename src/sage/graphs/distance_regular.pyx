@@ -43,6 +43,7 @@ from sage.modules.free_module import VectorSpace
 from sage.rings.finite_rings.finite_field_constructor import GF as Sage_GF
 from sage.matrix.constructor import Matrix as Sage_Matrix
 from sage.rings.rational cimport Rational
+from sage.libs.gap.libgap import libgap
 
 ################################################################################
 # UTILITY FUNCTIONS
@@ -168,6 +169,19 @@ def _codewords_have_different_support( vec1, vec2 ):
 ################################################################################
 # START CONSTRUCTIONS
 
+def construct_graph_3D42():
+    
+    libgap.eval("SetInfoLevel(InfoWarning,0)") # silence #I warnings from GAP (without IO pkg)
+    libgap.LoadPackage("AtlasRep")
+    
+    Group=libgap.AtlasGroup("3D4(2)",libgap.NrMovedPoints,819)
+    libgap.eval("SetInfoLevel(InfoWarning,1)") # restore #I warnings
+
+    
+    Graph = Sage_Graph(Group.Orbit([1,2],libgap.OnSets), format='list_of_edges')
+    Graph.name("Triality graph ^3D_4(2)")
+    return Graph
+
 def construct_bilinear_form_graph(const int d, const int e, const int q):
     r"""
     Return a bilienar form graph with the given parameters.
@@ -254,60 +268,6 @@ def construct_alternating_form_graph(const int n, const int q):
         for w in rank2Matrices:
             sig_check() # check for interrupts
             edges.append(( v, _add_vectors_over_q(sumTable,v,w) ))
-
-    G = Sage_Graph(edges, format='list_of_edges')
-    G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
-    return G
-
-def construct_alternating_form_graph2(const int n, const int q):
-
-    field = Sage_GF(q)
-    fieldElems = _get_elems_of_GF(q)
-    sumTable = _get_sum_table(fieldElems)
-
-    # now fieldElems[i] + fieldElems[j] = fieldElems[sumTable[i][j]]
-
-    skewSymmetricMatrices = _AllIntegerVectorsIter( (n*(n-1))/2, q)
-    
-    rank2Matrices = []
-    for v in skewSymmetricMatrices:
-        sig_check()
-        
-        # we need to convert v into a matrix
-
-        mat = [ [0 for i in range(n)] for j in range(n) ]
-        for i in range(n):
-            for j in range(n):
-                if i == j:
-                    mat[i][j] = 0
-                elif i < j:
-                    index = 0
-                    # skip all rows above i
-                    add = n-1
-                    for k in range(i):
-                        index += add
-                        add-=1
-                    # now get to jth element
-                    index += (j-1-i)
-
-                    # finally get the element
-                    mat[i][j] = fieldElems[v[index]]
-                else : # i > j
-                    mat[i][j] = -mat[j][i]
-        
-        # finally check if mat is a rank2 matrix
-        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
-            rank2Matrices.append(v) # we append v as it is smaller than mat
-
-    # now we have all matrices of rank 2
-
-    cdef list edges = [None]*(len(skewSymmetricMatrices)*len(rank2Matrices))
-    index = 0
-    for v in skewSymmetricMatrices:    
-        for w in rank2Matrices:
-            sig_check() # check for interrupts
-            edges[index] = ( v, _add_vectors_over_q(sumTable,v,w) )
-            index += 1
 
     G = Sage_Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
@@ -634,6 +594,96 @@ def construct_Grassman( const int q, const int n, const int input_e ):
 
 # END CONSTRUCTIONS
 ################################################################################
+# START GRAPH RELATED FUNCTIONS
+
+def local_intersection_array( G, v ):
+    r"""
+    doesn't work
+    v is a vertex of G.
+    We build an "intersection array" using v
+    the intersection array is then returned
+
+    we use a rather slow BFS (cython and not C)
+    """
+
+    if v not in G:
+        raise ValueError("the vertex given is not in the graph!")
+
+    cdef list queue = [v] # BFS queue
+    cdef set seenVertices = set([v]) # seen vertices
+    cdef int diameter = 0 # distance in BFS
+    cdef dict distances = dict({}) # map vertex -> distance
+    while queue:
+        w = queue.pop()
+        distances[w] = diameter
+        diameter += 1
+        
+        # now add at the start of the queue
+        for u in G.neighbors(w):
+            if u not in seenVertices:
+                seenVertices.add(u)
+                queue.insert(0,u)
+    # end while
+    diameter -= 1 # we decrease by 1 since no node has distance diameter
+    # now we have a dictionary of distances from v
+
+    # for i = 0 to distance-1 pick y at distance i from v
+    # compute b_i and c_i for v,y
+    cdef list bs = []
+    cdef list cs = []
+    
+    for i in range(diameter+1):
+        y = v #initialise y in this scope
+        for w in distances:
+            if distances[w] == i:
+                y = w
+                break
+        # now d(v,y) = i
+
+        # b_i = n. neighbours of y at distance i+1 from v
+        # c_i = n. neighbours of y at distance i-1 from v
+        bi = 0
+        ci = 0
+        for w in G.neighbors(y):
+            if distances[w] == i+1:
+                bi += 1
+            elif distances[w] == i-1:
+                ci += 1
+        # end for
+
+        bs.append(bi)
+        cs.append(ci)
+    # end for
+
+    assert( cs[0] == 0 and bs[diameter] == 0, "something is wrong with bfs")
+
+    return (bs[:diameter] + cs[1:])
+
+def is_distance_regular_probabilistic( G, selection=0.4, proof=False ):
+    r"""
+    we pick selection*|V| vertices (roughly) at random in G and check if those are distance regular
+    if proof, then we return a dictionary { vertex -> local_intersection_array } s.t. the 2 
+    intersection arrays differ
+    """
+
+    if selection < 0 or selection > 1:
+        raise ValueError(
+            "selection must be a percentage of vertex of G to check")
+
+    cdef int toCheck = G.order() * selection # floor or ceil?
+    cdef list vertices = [ G.random_vertex() for i in range(toCheck) ]
+    
+    cdef list intersection = local_intersection_array(G, vertices[0])
+    for v in vertices[1:]:
+        array = local_intersection_array(G,v)
+        if array != intersection:
+            if proof:
+                return { vertices[0]: intersection, v:array }
+            else: return False
+    # end for
+
+    # if we get here, then all verties have the same local intersection array
+    return True
 
 # given a graph G it halves the graph
 def halve_graph(G) :
@@ -684,11 +734,23 @@ def halve_graph(G) :
     
     return H
 
+def number_of_vertices_from_intersection_array( array ):
+    cdef int d = len(array) / 2
+
+    cdef int ki = 1
+    cdef int v = 1
+    # invariant v = sum([k_0,..,k_i))
+    for i in range(1,d+1):
+        ki = (ki*array[i-1]) / array[d+i-1] # k_{i+1} = k_i*b_i /c_{i+1}
+        v += ki
+
+    return v
+
 # from bouwer book, we assume d \gt 3 [not sure if it works with smaller d]
 def intersection_array_from_classical_parameters( const int d,
                                                   const int b,
-                                                  const float alpha,
-                                                  const float beta ):
+                                                  alpha,
+                                                  beta ):
     r"""
     Return the intersection array generated by the input.
 
@@ -721,7 +783,7 @@ def intersection_array_from_classical_parameters( const int d,
     btoi = 1 # this represents b^i and it is only used if b \neq 1
     btod = b ** d # b^d used when b \neq 1
     invb = 1 #this represents 1 / b - 1 in case b \neq 1
-    if b != 1 : invb = 1.0 / (b - 1.0)
+    if b != 1 : invb = Rational(1.0 / (b - 1.0))
     for i in range(1,d):
         if b == 1: #easy formula if b is 1
             bs.append( (d - i) * (beta - alpha * i) )
@@ -775,17 +837,6 @@ def intersection_array_from_graph( G ):
     # and c starts with None (c_0 = 0)
     # so trim these 2 values
     return b[:-1]+c[1:]
-
-# check if the graph G is a grassman graph
-def is_Grassman( G ):
-    if not G.is_distance_regular(): return False
-    intArr = intersection_array_from_graph(G)
-    # If G is Grassman, then we can deduce the classical paramaters from the intersection array
-    (d, b, alpha, beta) = get_classical_parameters_from_intersection_array(intArr, True)
-
-    # as an aside we don't really need to check whether b is a prime power
-    # b == alpha && b != 1 && b > 0 is enough 
-    return d > 2 and b == alpha and b != 1 and b > 0    
 
 def get_classical_parameters_from_intersection_array( array, check=False):
     r"""
@@ -878,6 +929,9 @@ def get_classical_parameters_from_intersection_array( array, check=False):
     
     return (d, b, alpha, beta)
 
+################################################################################
+# BIG FUNCTIONS THAT GROUP CONSTRUCTIONS
+
 def distance_regular_graph_with_classical_parameters( const int d,
                                                       const int b,
                                                       input_alpha,
@@ -966,7 +1020,7 @@ def distance_regular_graph_with_classical_parameters( const int d,
         elif alpha == 0 and beta + 1 >= d:
             # Hamming Graph
             n = beta + 1
-            return GraphGenerators.HammingGraph(n,d)
+            return GraphGenerators.HammingGraph(d,n)
         elif alpha == 2 and ( beta == 2*d + 1 or beta == 2*d - 1):
             # Halved cube graph
             if beta == 2*d +1: # then n = beta
@@ -993,8 +1047,14 @@ def distance_regular_graph_with_classical_parameters( const int d,
         if alpha +1 == (1 + b*b)/(1 + b) and beta +1 == q_binomial(d+1,1,b):
             # U(2d,r)
             return GraphGenerators.UnitaryDualPolarGraph(2*d,-b)
-        elif d == 3 and alpha + 1 == 1 / (1+b) and beta + 1 == q_binomial(3,1,b):
-            # Triality graph
+        elif d == 3 and alpha + 1 == 1 / (1+b) and beta + 1 == q_binomial(3,1,-b):
+            q = -b
+            if q == 2:
+                return construct_graph_3D42()
+            elif q == 3:
+                raise ValueError("not implemented")
+            else:
+                raise ValueError("too big")
             pass
         elif alpha + 1 == b and beta + 1 == b**d:
             q = (-b)**2 # b = -r
@@ -1024,8 +1084,8 @@ def distance_regular_graph_with_classical_parameters( const int d,
                and alpha + 1 == q_binomial(5, 1, q_of(b,4))
                and beta + 1 == q_binomial( 10, 1, q_of(b,4))
         ):
-            # Exceptional Lie graph or E_7(1)
-            pass
+            raise ValueError(
+                "Exceptional Lie graph E_{7,7}(%d). Too big to be constructed"%(q_of(b,4)) )
         elif alpha + 1 == b and is_power_of( beta+1, b) >= d:
             # bilinear form
             e = is_power_of(beta+1, b)
@@ -1043,8 +1103,8 @@ def distance_regular_graph_with_classical_parameters( const int d,
         elif ( d == 3 and q_of(b,4) != -1 and alpha + 1 == b
                and beta + 1 == q_of(b,4)**9
         ):
-            # affine E_6(q)
-            pass
+            raise ValueError(
+                "Affine E_6(%d) graph. Too big to be constructed"%(q_of(b,4)) )
         pass
 
     raise ValueError(
