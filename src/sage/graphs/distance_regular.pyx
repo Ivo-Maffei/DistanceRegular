@@ -609,30 +609,22 @@ def local_intersection_array( G, v ):
     if v not in G:
         raise ValueError("the vertex given is not in the graph!")
 
-    cdef list queue = [v] # BFS queue
-    cdef set seenVertices = set([v]) # seen vertices
-    cdef int diameter = 0 # distance in BFS
-    cdef dict distances = dict({}) # map vertex -> distance
-    while queue:
-        w = queue.pop()
-        distances[w] = diameter
-        diameter += 1
-        
-        # now add at the start of the queue
-        for u in G.neighbors(w):
-            if u not in seenVertices:
-                seenVertices.add(u)
-                queue.insert(0,u)
-    # end while
-    diameter -= 1 # we decrease by 1 since no node has distance diameter
-    # now we have a dictionary of distances from v
+    # use BFS to create dictionary of distances from v
+    cdef dict distances = dict(G.breadth_first_search(v, report_distance=True))
 
-    # for i = 0 to distance-1 pick y at distance i from v
+    # compute diameter according to the above
+    cdef int diameter = 0
+    for v in distances:
+        if distances[v] > diameter:
+            diameter = distances[v]
+    
+    # for i = 0 to diameter pick y at distance i from v
     # compute b_i and c_i for v,y
     cdef list bs = []
     cdef list cs = []
     
     for i in range(diameter+1):
+        sig_check()
         y = v #initialise y in this scope
         for w in distances:
             if distances[w] == i:
