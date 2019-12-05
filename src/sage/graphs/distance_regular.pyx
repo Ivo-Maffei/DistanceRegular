@@ -169,6 +169,48 @@ def _codewords_have_different_support( vec1, vec2 ):
 ################################################################################
 # START CONSTRUCTIONS
 
+def construct_doubled_odd_graph( int n ):
+    r"""
+    let X = {1,2,..., 2n +1}
+    The doubled odd graph is the graph with
+    V = subsets of X of size n, n+1
+    E = { (s1,s2) | s1 in s2 or s2 in s1 }
+    """
+    # construction:
+    # get oll subsets of X of size n
+    # for each such set s1, add a number not in s to create s2
+
+    # if this is too slow, then construct as a hamming graph:
+    # a binary vector of size 2n+1 represents a set
+    cdef list edges = []
+    for s1 in IntegerVectors(n,k=2*n +1, max_part=1):
+        #s1 is a list
+        #iterate through it and create s2
+        for i in range(2*n+1):
+            if s1[i] == 0:
+                s2 = list(s1)
+                s2[i] = 1
+                #now s2 is a n+1-set containig s1
+                edges.append((tuple(s1),tuple(s2)))
+
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("Doubled Odd graph on a set of %d elements"%(2*n+1))
+    return G
+    
+def construct_polygon( int n ):
+    r"""
+    construct n-gon as a graph
+    """
+    cdef list edges = []
+    for i in range(n-1):
+        edges.append( (i, i+1) )
+        
+    edges.append( (n-1, 0) )
+    G = Sage_Graph(edges, format='list_of_edges')
+    G.name("%d-gon"%n)
+    
+    return G
+
 def construct_graph_3D42():
     
     libgap.eval("SetInfoLevel(InfoWarning,0)") # silence #I warnings from GAP (without IO pkg)
@@ -222,7 +264,27 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
     return G
 
 def construct_alternating_form_graph(const int n, const int q):
+    r"""
+    Return the alternating form graph with the given parameters.
 
+    This construct a graph whose vertices are all ``n``x``n`` skew symmetric
+    matrices over ``GF(q)``. 2 vertices are adjecent if and only if the
+    difference of the 2 matrices has rank 2
+
+    INPUT:
+
+    - ``n`` -- integer
+    - ``q`` -- prime power
+
+    EXAMPLES:
+
+        sage: g = construct_alternating_form_graph(5,2)
+        sage: g.is_distance_regular()
+        True
+
+    TESTS::
+
+    """
     field = Sage_GF(q)
     fieldElems = _get_elems_of_GF(q)
     sumTable = _get_sum_table(fieldElems)
@@ -724,6 +786,89 @@ def halve_graph(G) :
 
     H.name("Halved %s" % G.name() )
     
+    return H
+
+def fold_graph( G ):
+    r"""
+    Assume G is antipodal and computes its folded graph:
+
+    G antipodal means G_d is a disjoint union of cliques
+    (G_d is the distance graph of G and d is its diameter)
+
+    the fold graph (V_f,E_f) is:
+    V_f = maximal cliques of G_d
+    E_f = { (c_1,c_2) | \exists u \in c_1, v \in c_2 s.t. (u,v) \in E }
+    """
+
+    #here we should check that G is antipodal
+
+    G_d = G.distance_graph(G.diameter())
+
+    # to create the vertex set:
+    # make a list of sets; each set a singleto containing a vertex of G
+    # iterate through the list
+    # for each singleton set, add to that sets all neighbours of its element in G_d
+    # (like a disjoint set forest)
+    # since G_d is a union of disjoint cliques all nodes in a set are a maximal clique
+    # atm we have a sillier implementation
+    cdef list cliques = []
+    cdef list vertices = G.vertices()
+    for v in vertices:
+        clique = frozenset(G_d.neighbors(v, closed=True))
+        cliques.append(clique)
+
+    # now cliques is the vertex set of the folded graph
+    F = Sage_Graph()
+    
+    # so let's buid the edges
+    cdef list edges = []
+    for (u,v,l) in G.edges():
+        #find cliques c_1, c_2 containig (u,v)
+
+        #initialise c1,c2 with the correct type
+        c1 = cliques[0]
+        c2 = cliques[0]
+        done = 0 #how many found?
+        for c in cliques:
+            if u in c:
+                c1 = c
+                if done == 1: break
+                done += 1
+            elif v in c:
+                c2 = c
+                if done == 1: break
+                done += 1
+        # end for
+        F.add_edge( (c1,c2) )
+
+    F.name("Fold of %s" %(G.name()))
+    return F
+
+def double_graph(G):
+    r"""
+    This function return the doubled graph of G
+    the vertices of double graph are 2 copies of V
+    the edges are 2 copies of E plus (u_1,v_2), (u_2,v_1) for any (u,v) in E
+    (atm we don't do 2 copies of E since in this way we get the graphs we want)
+    """
+    #in order to have to copies of each vertex we do
+    #(0,v) and (1,v)
+
+    cdef list edges = []
+    for (u,v,l) in G.edges():
+        u1 = (0,u)
+        u2 = (1,u)
+        v1 = (0,v)
+        v2 = (1,v)
+        
+        #edges.append((u1,v1))
+        #edges.append((u2,v2))
+        edges.append((u1,v2))
+        edges.append((u2,v1))
+
+    H = Sage_Graph(edges, format='list_of_edges')
+    H.name("Double of %s"%(G.name()))
+
     return H
 
 def number_of_vertices_from_intersection_array( array ):
