@@ -44,6 +44,7 @@ from sage.rings.finite_rings.finite_field_constructor import GF as Sage_GF
 from sage.matrix.constructor import Matrix as Sage_Matrix
 from sage.rings.rational cimport Rational
 from sage.libs.gap.libgap import libgap
+from sage.combinat.designs import design_catalog as Sage_Designs
 
 ################################################################################
 # UTILITY FUNCTIONS
@@ -175,6 +176,8 @@ def construct_doubled_odd_graph( int n ):
     The doubled odd graph is the graph with
     V = subsets of X of size n, n+1
     E = { (s1,s2) | s1 in s2 or s2 in s1 }
+
+    This is WAY faster than building odd graph via Sage and then doubling it
     """
     # construction:
     # get oll subsets of X of size n
@@ -194,9 +197,9 @@ def construct_doubled_odd_graph( int n ):
                 edges.append((tuple(s1),tuple(s2)))
 
     G = Sage_Graph(edges, format='list_of_edges')
-    G.name("Doubled Odd graph on a set of %d elements"%(2*n+1))
+    G.name("Bipartite double of Odd graph on a set of %d elements"%(2*n+1))
     return G
-    
+
 def construct_polygon( int n ):
     r"""
     construct n-gon as a graph
@@ -211,17 +214,30 @@ def construct_polygon( int n ):
     
     return G
 
-def construct_graph_3D42():
+def construct_graph_3D42(const int q):
+    r"""
+    we build the graph $^3D_{4,2}(q)$. Those come from the groups $^3D_4(q)$
+    """
+
+    if q>3:
+        raise ValueError("graph not implemented yet")
+    if q < 2:
+        raise ValueError("input should be either 2 or 3")
     
     libgap.eval("SetInfoLevel(InfoWarning,0)") # silence #I warnings from GAP (without IO pkg)
     libgap.LoadPackage("AtlasRep")
+
+    if q == 2:
+        Group = libgap.AtlasGroup("3D4(2)",libgap.NrMovedPoints,819)
+    else:
+        Group = libgap.AtlasGroup("3D4(3)",libgap.NrMovedPoints,26572)
     
-    Group=libgap.AtlasGroup("3D4(2)",libgap.NrMovedPoints,819)
     libgap.eval("SetInfoLevel(InfoWarning,1)") # restore #I warnings
 
-    
     Graph = Sage_Graph(Group.Orbit([1,2],libgap.OnSets), format='list_of_edges')
-    Graph.name("Triality graph ^3D_4(2)")
+    
+    Graph.name("Triality graph ^3D_{4,2}(%d)"%(q))
+        
     return Graph
 
 def construct_bilinear_form_graph(const int d, const int e, const int q):
@@ -615,44 +631,22 @@ def construct_Grassman( const int q, const int n, const int input_e ):
         raise ValueError(
             "Impossible parameters n > e (%d > %d)" %(n,input_e) )
     
-    V = VectorSpace(Sage_GF(q),n) # vector space over F_q of dim n
-
-    # get a generator of subspaces
-    if n >= 2 * input_e:
-        e = input_e
-    else:
+    e = input_e
+    if n < 2*input_e:
         e = n - input_e
-
-    #add edges
-    edges = []
-
-    # in order to find U s.t. W intersection U has dim e-1
-    # we pick S of dim e-1 in W
-    # we pick v not in W ( we pick the lift of w in V/W)
-    # and let U = span(v,S)
-    for W in V.subspaces(e):
-        for S in W.subspaces(e-1):
-            # get a basis of S
-            basis = []
-            for v in S.basis():
-                basis.append(v)
-
-            # now get elements not in W
-            quotientW = V.quotient(W)
-            for w in quotientW[1:]: #we skip the first vector which is 0
-                v = quotientW.lift(w)
-                basis.append(v)
-                U = V.span( basis )# we could get rid of this and simple row-reduce basis
-                # that is we represents a v.s. as the row reduced matrix whose rowspace (or colspace)
-                # is the v.s.
-                
-                edges.append( (W.basis_matrix(), U.basis_matrix()) )
-                # now remove v fom basis
-                basis.pop()
-
-    G = Sage_Graph(edges, format='list_of_edges')
-    G.name("Grassman graph J_%d(%d,%d)" % (q, n, input_e) )
+        
+    
+    PG = Sage_Designs.ProjectiveGeometryDesign(n-1, e-1, q)
+    #we want the intersection graph
+    #the size of the intersection must be (q^{e-1} - 1) / (q-1)
+    cdef int size = (q**(e-1) -  1)/(q-1)
+    G = PG.intersection_graph([size])
+    G.name("Grassman graph J_%d(%d,%d)"%(q,n,e))
     return G
+
+def construct_double_Grassman(const int q, const int n, const int e):
+    return bipartite_double_graph(construct_Grassman(q,n,e))
+
 
 # END CONSTRUCTIONS
 ################################################################################
@@ -816,8 +810,8 @@ def fold_graph( G ):
     for v in vertices:
         clique = frozenset(G_d.neighbors(v, closed=True))
         cliques.append(clique)
-
     # now cliques is the vertex set of the folded graph
+    
     F = Sage_Graph()
     
     # so let's buid the edges
@@ -839,17 +833,17 @@ def fold_graph( G ):
                 if done == 1: break
                 done += 1
         # end for
+        assert(c1 != c2, "something went wrong with our algorithm; maybe G is not antipodal?")
         F.add_edge( (c1,c2) )
 
     F.name("Fold of %s" %(G.name()))
     return F
 
-def double_graph(G):
+def bipartite_double_graph(G):
     r"""
-    This function return the doubled graph of G
+    This function return the biparite doubled graph of G
     the vertices of double graph are 2 copies of V
-    the edges are 2 copies of E plus (u_1,v_2), (u_2,v_1) for any (u,v) in E
-    (atm we don't do 2 copies of E since in this way we get the graphs we want)
+    the edges are (u_1,v_2), (u_2,v_1) for any (u,v) in E
     """
     #in order to have to copies of each vertex we do
     #(0,v) and (1,v)
@@ -861,13 +855,11 @@ def double_graph(G):
         v1 = (0,v)
         v2 = (1,v)
         
-        #edges.append((u1,v1))
-        #edges.append((u2,v2))
         edges.append((u1,v2))
         edges.append((u2,v1))
 
     H = Sage_Graph(edges, format='list_of_edges')
-    H.name("Double of %s"%(G.name()))
+    H.name("Bipartite Double of %s"%(G.name()))
 
     return H
 
@@ -1186,10 +1178,8 @@ def distance_regular_graph_with_classical_parameters( const int d,
             return GraphGenerators.UnitaryDualPolarGraph(2*d,-b)
         elif d == 3 and alpha + 1 == 1 / (1+b) and beta + 1 == q_binomial(3,1,-b):
             q = -b
-            if q == 2:
-                return construct_graph_3D42()
-            elif q == 3:
-                raise ValueError("not implemented")
+            if q < 4:
+                return construct_graph_3D42(q)
             else:
                 raise ValueError("too big")
             pass
