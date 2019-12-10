@@ -35,13 +35,13 @@ import numpy as np
 
 # sage imports
 from sage.graphs.graph_generators import GraphGenerators
-from sage.graphs.graph import Graph as Sage_Graph
+from sage.graphs.graph import Graph
 from sage.arith.misc import is_prime_power
 from sage.combinat.q_analogues import q_binomial
 from sage.combinat.integer_vector import IntegerVectors
 from sage.modules.free_module import VectorSpace
-from sage.rings.finite_rings.finite_field_constructor import GF as Sage_GF
-from sage.matrix.constructor import Matrix as Sage_Matrix
+from sage.rings.finite_rings.finite_field_constructor import GF
+from sage.matrix.constructor import Matrix
 from sage.rings.rational cimport Rational
 from sage.libs.gap.libgap import libgap
 from sage.combinat.designs import design_catalog as Sage_Designs
@@ -88,7 +88,7 @@ class _AllIntegerVectorsIter:
 def _get_elems_of_GF( const int q):
     elems = []
 
-    for x in Sage_GF(q):
+    for x in GF(q):
         elems.append(x)
 
     return elems
@@ -170,7 +170,7 @@ def _codewords_have_different_support( vec1, vec2 ):
 ################################################################################
 # START CONSTRUCTIONS
 
-def construct_doubled_odd_graph( int n ):
+def doubled_odd_graph( int n ):
     r"""
     let X = {1,2,..., 2n +1}
     The doubled odd graph is the graph with
@@ -196,11 +196,11 @@ def construct_doubled_odd_graph( int n ):
                 #now s2 is a n+1-set containig s1
                 edges.append((tuple(s1),tuple(s2)))
 
-    G = Sage_Graph(edges, format='list_of_edges')
+    G = Graph(edges, format='list_of_edges')
     G.name("Bipartite double of Odd graph on a set of %d elements"%(2*n+1))
     return G
 
-def construct_polygon( int n ):
+def polygon( int n ):
     r"""
     construct n-gon as a graph
     """
@@ -209,12 +209,12 @@ def construct_polygon( int n ):
         edges.append( (i, i+1) )
         
     edges.append( (n-1, 0) )
-    G = Sage_Graph(edges, format='list_of_edges')
+    G = Graph(edges, format='list_of_edges')
     G.name("%d-gon"%n)
     
     return G
 
-def construct_graph_3D42(const int q):
+def graph_3D42(const int q):
     r"""
     we build the graph $^3D_{4,2}(q)$. Those come from the groups $^3D_4(q)$
     """
@@ -228,19 +228,19 @@ def construct_graph_3D42(const int q):
     libgap.LoadPackage("AtlasRep")
 
     if q == 2:
-        Group = libgap.AtlasGroup("3D4(2)",libgap.NrMovedPoints,819)
+        group = libgap.AtlasGroup("3D4(2)",libgap.NrMovedPoints,819)
     else:
-        Group = libgap.AtlasGroup("3D4(3)",libgap.NrMovedPoints,26572)
+        group = libgap.AtlasGroup("3D4(3)",libgap.NrMovedPoints,26572)
     
     libgap.eval("SetInfoLevel(InfoWarning,1)") # restore #I warnings
 
-    Graph = Sage_Graph(Group.Orbit([1,2],libgap.OnSets), format='list_of_edges')
+    graph = Graph(group.Orbit([1,2],libgap.OnSets), format='list_of_edges')
     
-    Graph.name("Triality graph ^3D_{4,2}(%d)"%(q))
+    graph.name("Triality graph ^3D_{4,2}(%d)"%(q))
         
-    return Graph
+    return graph
 
-def construct_bilinear_form_graph(const int d, const int e, const int q):
+def bilinear_form_graph(const int d, const int e, const int q):
     r"""
     Return a bilienar form graph with the given parameters.
 
@@ -266,7 +266,7 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
     for v in matricesOverq:
         sig_check()
         w =  _convert_vector_to_GF_q(v,fieldElems)
-        if Sage_Matrix(Sage_GF(q), w, nrows=d).rank() == 1:
+        if Matrix(GF(q), w, nrows=d).rank() == 1:
             rank1Matrices.append(v)
 
     edges = []
@@ -275,11 +275,11 @@ def construct_bilinear_form_graph(const int d, const int e, const int q):
             sig_check() # this loop may take a long time, so check for interrupts
             edges.append( ( v, _add_vectors_over_q(sumTable,v,w) ) )
     
-    G = Sage_Graph(edges, format='list_of_edges')    
+    G = Graph(edges, format='list_of_edges')    
     G.name("Bilinear form graphs over F_%d with parameters (%d,%d)" %(q,d,e) )
     return G
 
-def construct_alternating_form_graph(const int n, const int q):
+def alternating_form_graph(const int n, const int q):
     r"""
     Return the alternating form graph with the given parameters.
 
@@ -294,14 +294,14 @@ def construct_alternating_form_graph(const int n, const int q):
 
     EXAMPLES:
 
-        sage: g = construct_alternating_form_graph(5,2)
+        sage: g = alternating_form_graph(5,2)
         sage: g.is_distance_regular()
         True
 
     TESTS::
 
     """
-    field = Sage_GF(q)
+    field = GF(q)
     fieldElems = _get_elems_of_GF(q)
     sumTable = _get_sum_table(fieldElems)
 
@@ -336,7 +336,7 @@ def construct_alternating_form_graph(const int n, const int q):
                     mat[i][j] = -mat[j][i]
         
         # finally check if mat is a rank2 matrix
-        if Sage_Matrix(Sage_GF(q),mat).rank() == 2:
+        if Matrix(GF(q),mat).rank() == 2:
             rank2Matrices.append(v) # we append v as it is smaller than mat
 
     # now we have all matrices of rank 2
@@ -347,11 +347,11 @@ def construct_alternating_form_graph(const int n, const int q):
             sig_check() # check for interrupts
             edges.append(( v, _add_vectors_over_q(sumTable,v,w) ))
 
-    G = Sage_Graph(edges, format='list_of_edges')
+    G = Graph(edges, format='list_of_edges')
     G.name("Alternating form graph on (F_%d)^%d" %(q,n) )
     return G
 
-def construct_hermitean_form_graph(const int n, const int q):
+def hermitean_form_graph(const int n, const int q):
     r"""
     Return the Hermitean from graph with the given parameters.
 
@@ -366,7 +366,7 @@ def construct_hermitean_form_graph(const int n, const int q):
 
     EXAMPLES:
 
-        sage: g = construct_hermitean_form_graph(5,2)
+        sage: g = hermitean_form_graph(5,2)
         sage: g.is_distance_regular()
         True
 
@@ -431,7 +431,7 @@ def construct_hermitean_form_graph(const int n, const int q):
                 mat[i][i] = FrElems[diag[i]]
                 
             # now mat is a matrix
-            if Sage_Matrix(Sage_GF(q), mat).rank() == 1:
+            if Matrix(GF(q), mat).rank() == 1:
                 rank1Matrices.append( (diag, up) ) # no need to store the whole matrix
 
     edges = []
@@ -441,11 +441,11 @@ def construct_hermitean_form_graph(const int n, const int q):
                 sig_check()
                 edges.append(  ( (diag,up), (_add_vectors_over_q(sumTabler,diag,d), _add_vectors_over_q(sumTableq,up,u)) )  )
                 
-    G = Sage_Graph(edges, format='list_of_edges')
+    G = Graph(edges, format='list_of_edges')
     G.name("Hermitean form graph on (F_%d)^%d" %(q,n) )
     return G
 
-def construct_halved_cube( int n ):
+def halved_cube( int n ):
     r"""
     Return the graph $\frac 1 2 Q_n$.
 
@@ -458,7 +458,7 @@ def construct_halved_cube( int n ):
 
     EXAMPLES:
 
-        sage: g = construct_halved_cube(8) # long time for large n
+        sage: g = halved_cube(8) # long time for large n
 
         # n = 14 -> ~1min
         # n = 15 -> ~4min
@@ -484,7 +484,7 @@ def construct_halved_cube( int n ):
     G.name("Halved %d Cube"%n)
     return G
 
-def construct_extended_ternary_Golay_code_graph():
+def extended_ternary_Golay_code_graph():
     r"""
     Return the graph associated with the extended ternary Golay code.
 
@@ -495,14 +495,14 @@ def construct_extended_ternary_Golay_code_graph():
 
     EXAMPLES:
 
-        sage: g = construct_extended_ternary_Golay_code_graph()
+        sage: g = extended_ternary_Golay_code_graph()
         sage: g.is_distance_regular()
         True
 
     TESTS::
     """
 
-    V = VectorSpace(Sage_GF(3),12) # underlying vectorspace
+    V = VectorSpace(GF(3),12) # underlying vectorspace
     C = V.span([ (1, 0, 0, 0, 0, 0, 2, 0, 1, 2, 1, 2),
                  (0, 1, 0, 0, 0, 0, 1, 2, 2, 2, 1, 0),
                  (0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1),
@@ -524,7 +524,7 @@ def construct_extended_ternary_Golay_code_graph():
     G.name("Ternary Extended Golay Code Graph")
     return G
 
-def construct_large_Witt_graph():
+def large_Witt_graph():
     r"""
     Return the large Witt graph.
 
@@ -532,7 +532,7 @@ def construct_large_Witt_graph():
 
     EXAMPLES:
 
-        sage: g = construct_large_Witt_graph()
+        sage: g = large_Witt_graph()
         sage: g.is_distance_regular()
         True
 
@@ -573,11 +573,11 @@ def construct_large_Witt_graph():
             if _codewords_have_different_support(v,w):
                 edges.append((v,w))
 
-    W = Sage_Graph(edges, format='list_of_edges')
+    W = Graph(edges, format='list_of_edges')
     W.name("Large Witt graph")
     return W
 
-def construct_truncated_Witt_graph():
+def truncated_Witt_graph():
     r"""
     Return the truncated Witt graph.
 
@@ -586,24 +586,24 @@ def construct_truncated_Witt_graph():
 
     EXAMPLES:
 
-        sage: g = construct_large_Witt_graph()
+        sage: g = large_Witt_graph()
         sage: g.is_distance_regular()
         True
 
     TESTS::
 
-        sage: g = construct_large_Witt_graph()
+        sage: g = large_Witt_graph()
         ...
     """
     # get large witt graph and remove all vertices which start with a 1
-    G = construct_large_Witt_graph()
+    G = large_Witt_graph()
     G.delete_vertices(filter( lambda x : x[0] == 1, G.vertices() ))
     G.relabel( lambda v: v[1:24] )
 
     G.name("Truncated Witt graph")
     return G
 
-def construct_Grassman( const int q, const int n, const int input_e ):
+def Grassman( const int q, const int n, const int input_e ):
     r"""
 
     Return a Grassman graph with parameters ``(q,n,e)``.
@@ -644,8 +644,8 @@ def construct_Grassman( const int q, const int n, const int input_e ):
     G.name("Grassman graph J_%d(%d,%d)"%(q,n,e))
     return G
 
-def construct_double_Grassman(const int q, const int n, const int e):
-    return bipartite_double_graph(construct_Grassman(q,n,e))
+def double_Grassman(const int q, const int n, const int e):
+    return bipartite_double_graph(Grassman(q,n,e))
 
 
 # END CONSTRUCTIONS
@@ -827,7 +827,7 @@ def fold_graph( G ):
             #is there an edge (c1,c2)
             if has_edge(c1,c2): edges.append( (c1,c2) )
 
-    F = Sage_Graph(edges, format='list_of_edges')
+    F = Graph(edges, format='list_of_edges')
     F.name("Fold of %s" % (G.name()) )
     return F
 
@@ -850,7 +850,7 @@ def bipartite_double_graph(G):
         edges.append((u1,v2))
         edges.append((u2,v1))
 
-    H = Sage_Graph(edges, format='list_of_edges')
+    H = Graph(edges, format='list_of_edges')
     H.name("Bipartite Double of %s"%(G.name()))
 
     return H
@@ -1145,9 +1145,9 @@ def distance_regular_graph_with_classical_parameters( const int d,
         elif alpha == 2 and ( beta == 2*d + 1 or beta == 2*d - 1):
             # Halved cube graph
             if beta == 2*d +1: # then n = beta
-                return construct_halved_cube(beta)
+                return halved_cube(beta)
             else: # then n = beta + 1
-                return construct_halved_cube(beta+1)
+                return halved_cube(beta+1)
         else :
             raise ValueError(
                 "No distance-regular graph with the given parameters exists")
@@ -1155,13 +1155,13 @@ def distance_regular_graph_with_classical_parameters( const int d,
     elif b == -2:
         if d == 3 and alpha == -4 and beta == 10:
             # large Witt graph
-            return construct_large_Witt_graph()
+            return large_Witt_graph()
         elif d == 3 and alpha == -2 and beta == 5:
             # truncate Witt graph
-           return construct_truncated_Witt_graph()
+           return truncated_Witt_graph()
         elif d == 3 and alpha == -3 and beta == 8:
             #goolay code graph
-            return construct_extended_ternary_Golay_code_graph()
+            return extended_ternary_Golay_code_graph()
         pass
     
     elif b < 0 and is_prime_power(b):
@@ -1171,13 +1171,13 @@ def distance_regular_graph_with_classical_parameters( const int d,
         elif d == 3 and alpha + 1 == 1 / (1+b) and beta + 1 == q_binomial(3,1,-b):
             q = -b
             if q < 4:
-                return construct_graph_3D42(q)
+                return graph_3D42(q)
             else:
                 raise ValueError("too big")
             pass
         elif alpha + 1 == b and beta + 1 == b**d:
             q = (-b)**2 # b = -r
-            return construct_hermitean_form_graph(d,q)
+            return hermitean_form_graph(d,q)
         pass
     
     elif is_prime_power(b):
@@ -1208,7 +1208,7 @@ def distance_regular_graph_with_classical_parameters( const int d,
         elif alpha + 1 == b and is_power_of( beta+1, b) >= d:
             # bilinear form
             e = is_power_of(beta+1, b)
-            return construct_bilinear_form_graph(d,e,b)
+            return bilinear_form_graph(d,e,b)
         elif ( q_of(b,2) != -1 and alpha + 1 == b
                and beta + 1 in { q_of(b,2)**(2*d-1), q_of(b,2)**(2*d+1) }
         ):
@@ -1218,7 +1218,7 @@ def distance_regular_graph_with_classical_parameters( const int d,
                 n = 2*d
             else:
                 n = 2*d+1
-            return construct_alternating_form_graph(n,q)
+            return alternating_form_graph(n,q)
         elif ( d == 3 and q_of(b,4) != -1 and alpha + 1 == b
                and beta + 1 == q_of(b,4)**9
         ):
