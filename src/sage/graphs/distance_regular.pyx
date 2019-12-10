@@ -794,6 +794,13 @@ def fold_graph( G ):
     E_f = { (c_1,c_2) | \exists u \in c_1, v \in c_2 s.t. (u,v) \in E }
     """
 
+    def has_edge( c1, c2 ):
+        for u in c1:
+            for v in c2:
+                if G.has_edge(u,v) : return True
+
+        return False
+
     #here we should check that G is antipodal
 
     G_d = G.distance_graph(G.diameter())
@@ -810,33 +817,18 @@ def fold_graph( G ):
     for v in vertices:
         clique = frozenset(G_d.neighbors(v, closed=True))
         cliques.append(clique)
-    # now cliques is the vertex set of the folded graph
-    
-    F = Sage_Graph()
-    
-    # so let's buid the edges
+
+    cdef int n = len(cliques)
     cdef list edges = []
-    for (u,v,l) in G.edges():
-        #find cliques c_1, c_2 containig (u,v)
+    for i in range(n):
+        c1 = cliques[i]
+        for j in range(i+1, n):
+            c2 = cliques[j]
+            #is there an edge (c1,c2)
+            if has_edge(c1,c2): edges.append( (c1,c2) )
 
-        #initialise c1,c2 with the correct type
-        c1 = cliques[0]
-        c2 = cliques[0]
-        done = 0 #how many found?
-        for c in cliques:
-            if u in c:
-                c1 = c
-                if done == 1: break
-                done += 1
-            elif v in c:
-                c2 = c
-                if done == 1: break
-                done += 1
-        # end for
-        assert(c1 != c2, "something went wrong with our algorithm; maybe G is not antipodal?")
-        F.add_edge( (c1,c2) )
-
-    F.name("Fold of %s" %(G.name()))
+    F = Sage_Graph(edges, format='list_of_edges')
+    F.name("Fold of %s" % (G.name()) )
     return F
 
 def bipartite_double_graph(G):
